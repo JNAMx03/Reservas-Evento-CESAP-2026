@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GRAN FIESTA ANUAL DE AFILIADOS - CESNE - CESAP</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <header class="cabecera">
+    <div class="titulo">
+      <h1>GRAN FIESTA ANUAL DE AFILIADOS - CESNE - CESAP</h1>
+      <span id="conexion" class="conexion">Conectando…</span>
+      <nav id="pestanas" class="pestanas" aria-label="Secciones">
+        <a href="#registro" data-vista="registro">Registro</a>
+        <a href="#finanzas" data-vista="finanzas">Finanzas</a>
+        <a href="#tv" data-vista="tv">Pantalla TV</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ═══════════════ REGISTRO ═══════════════ -->
+  <div id="vista-registro" class="vista">
+  <div id="resumen" class="resumen resumen-registro"></div>
+
+  <div class="herramientas">
+    <input type="search" id="buscar" placeholder="Buscar nombre, documento, teléfono o N° de palco…" autocomplete="off">
+    <div class="grupo-control">
+      <span class="etiqueta">Colorear por</span>
+      <div id="colorear" class="segmentado" role="group" aria-label="Colorear por">
+        <button type="button" data-colorear="categoria">Categoría</button>
+        <button type="button" data-colorear="empresa">Empresa</button>
+        <button type="button" data-colorear="ocupacion">Ocupación</button>
+      </div>
+    </div>
+    <label class="grupo-control">
+      <span class="etiqueta">Resaltar</span>
+      <select id="resaltar"></select>
+    </label>
+    <div class="grupo-control">
+      <span class="etiqueta">Zoom</span>
+      <div class="segmentado">
+        <button type="button" id="zoom-menos" aria-label="Alejar">−</button>
+        <button type="button" id="zoom-ajustar">Ajustar</button>
+        <button type="button" id="zoom-mas" aria-label="Acercar">+</button>
+      </div>
+    </div>
+    <button type="button" id="organizar" class="boton">Organizar palcos</button>
+    <a class="boton" href="/api/exportar.xlsx">Exportar a Excel</a>
+  </div>
+
+  <section id="resultados" class="resultados" hidden></section>
+
+  <main class="app">
+    <div id="plano-caja" class="plano-caja">
+      <svg id="plano" class="plano" role="img" aria-label="Plano de palcos"></svg>
+    </div>
+
+    <aside class="panel">
+      <!-- Vista normal: leyenda y totales -->
+      <section id="panel-leyenda">
+        <h2 id="leyenda-titulo">Categorías</h2>
+        <ul id="leyenda" class="leyenda"></ul>
+        <p class="suave pequeno">Toca un elemento para resaltarlo en el plano. Toca un palco para ver sus sillas.</p>
+      </section>
+
+      <!-- Modo organizar -->
+      <section id="panel-organizar" hidden>
+        <h2>Organizar palcos</h2>
+        <p class="suave pequeno">Toca palcos en el plano o arrastra para seleccionar varios. También puedes escribir números o rangos.</p>
+
+        <form id="form-rango" class="fila-form">
+          <input name="rango" placeholder="Ej: 1-54, 60, 135-152" autocomplete="off">
+          <button type="submit" class="boton">Agregar</button>
+        </form>
+
+        <div class="seleccion-info">
+          <strong id="sel-cantidad">0 palcos seleccionados</strong>
+          <span id="sel-lista" class="suave pequeno"></span>
+          <button type="button" id="sel-vaciar" class="enlace">Limpiar selección</button>
+        </div>
+
+        <div class="asignar">
+          <label>Categoría
+            <select id="asig-categoria"></select>
+          </label>
+          <label>Empresa
+            <select id="asig-empresa"></select>
+          </label>
+          <button type="button" id="asig-aplicar" class="primario">Aplicar a la selección</button>
+          <div class="fila-botones">
+            <button type="button" id="sel-bloquear" class="boton">Bloquear selección</button>
+            <button type="button" id="sel-desbloquear" class="boton">Desbloquear selección</button>
+          </div>
+        </div>
+
+        <h3>Categorías (colores)</h3>
+        <ul id="lista-categorias" class="lista-grupos"></ul>
+        <form class="fila-form" data-nuevo="categorias">
+          <input type="color" name="color" value="#8b46c9" aria-label="Color">
+          <input name="nombre" placeholder="Nueva categoría" maxlength="60" required>
+          <input name="precio" class="dinero precio" inputmode="numeric" placeholder="Precio palco" aria-label="Precio del palco completo">
+          <button type="submit" class="boton">Agregar</button>
+        </form>
+
+        <h3>Correo de las boletas</h3>
+        <p id="correo-estado" class="suave pequeno">Revisando…</p>
+        <form id="form-correo-prueba" class="fila-form">
+          <input name="para" type="email" placeholder="Enviar prueba a…" required>
+          <button type="submit" class="boton">Enviar prueba</button>
+        </form>
+
+        <h3>Empresas</h3>
+        <ul id="lista-empresas" class="lista-grupos"></ul>
+        <form class="fila-form" data-nuevo="empresas">
+          <input type="color" name="color" value="#1f9d6b" aria-label="Color">
+          <input name="nombre" placeholder="Nueva empresa" maxlength="60" required>
+          <button type="submit" class="boton">Agregar</button>
+        </form>
+      </section>
+    </aside>
+  </main>
+  </div>
+
+  <!-- ═══════════════ FINANZAS ═══════════════ -->
+  <section id="vista-finanzas" class="vista finanzas" hidden>
+    <div class="fin-cabecera">
+      <h2>Finanzas</h2>
+      <a class="boton" href="/api/exportar.xlsx">Exportar a Excel</a>
+    </div>
+    <div id="fin-tarjetas" class="resumen"></div>
+
+    <div class="tarjeta">
+      <div class="avance-cab"><strong>Sillas vendidas</strong><strong id="fin-pct"></strong></div>
+      <div class="barra-avance"><i id="fin-barra"></i></div>
+    </div>
+
+    <div class="fin-grilla">
+      <div class="tarjeta"><h3>Por zona</h3><div id="fin-zonas" class="tabla-caja"></div></div>
+      <div class="tarjeta"><h3>Por empresa del palco</h3><div id="fin-empresas" class="tabla-caja"></div></div>
+      <div class="tarjeta"><h3>Personas por afiliación</h3><div id="fin-afiliacion" class="tabla-caja"></div></div>
+      <div class="tarjeta"><h3>Pagos por medio</h3><div id="fin-medios" class="tabla-caja"></div></div>
+      <div class="tarjeta"><h3>Recaudado por día</h3><div id="fin-dias" class="tabla-caja"></div></div>
+    </div>
+
+    <div id="fin-pendientes-tarjeta" class="tarjeta" hidden>
+      <h3>Pagos incompletos (registros anteriores)</h3>
+      <div id="fin-pendientes" class="tabla-caja"></div>
+      <p class="suave pequeno">Son reservas creadas antes de exigir el pago completo. Toca una fila para abrir el palco y completar el pago.</p>
+    </div>
+
+    <div class="tarjeta">
+      <h3>Detalle de pagos</h3>
+      <div id="fin-pagos" class="tabla-caja"></div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ PANTALLA TV ═══════════════ -->
+  <section id="vista-tv" class="vista tv" hidden>
+    <div class="tv-cab">
+      <h2 id="tv-titulo"></h2>
+      <span id="tv-hora" class="tv-hora"></span>
+      <button type="button" id="tv-completa" class="boton">Pantalla completa</button>
+    </div>
+    <div class="tv-cuerpo">
+      <div class="tv-lateral">
+        <div class="tv-dato"><span>Palcos ocupados</span><strong id="tv-ocupados"></strong></div>
+        <div class="tv-dato"><span>Palcos llenos</span><strong id="tv-llenos"></strong></div>
+        <div class="tv-dato"><span>Personas registradas</span><strong id="tv-personas"></strong></div>
+        <div class="tv-dato"><span>Sillas disponibles</span><strong id="tv-libres"></strong></div>
+        <div class="tv-dato"><span>Ocupación</span><strong id="tv-ocupacion"></strong></div>
+        <div class="tv-dato"><span>Ocupación por zona</span><div id="tv-zonas" class="tv-barras"></div></div>
+        <div class="tv-dato"><span>Por empresa</span><div id="tv-empresas" class="tv-barras"></div></div>
+        <div class="tv-leyenda">
+          <span><i class="tv-l-ocupado"></i>Con reservas (personas / 10)</span>
+          <span><i class="tv-l-libre"></i>Disponible (color de la zona)</span>
+          <span><i class="tv-l-bloqueado"></i>Bloqueado</span>
+        </div>
+      </div>
+      <div class="tv-plano"><svg id="plano-tv" class="plano" role="img" aria-label="Plano de ocupación"></svg></div>
+    </div>
+  </section>
+
+  <dialog id="detalle">
+    <div class="detalle-cab">
+      <div>
+        <h2 id="detalle-titulo">Palco</h2>
+        <div id="detalle-etiquetas" class="etiquetas"></div>
+        <p id="detalle-ocupacion" class="suave"></p>
+      </div>
+      <div class="detalle-acciones">
+        <button type="button" id="bloquear-palco" class="boton pequeno">Bloquear palco</button>
+        <button type="button" id="cerrar" class="cerrar" aria-label="Cerrar">×</button>
+      </div>
+    </div>
+
+    <div class="detalle-cuerpo">
+      <div class="sillas-zona">
+        <svg id="sillas" class="sillas-svg" role="group" aria-label="Sillas del palco"></svg>
+        <div class="sillas-leyenda">
+          <span><i class="l-libre"></i>Libre</span>
+          <span><i class="l-sel"></i>Seleccionada</span>
+          <span><i class="l-ocupada"></i>Ocupada (color por persona)</span>
+        </div>
+        <div class="sillas-botones">
+          <button type="button" id="sel-libres" class="boton pequeno">Seleccionar libres</button>
+          <button type="button" id="sel-ninguna" class="boton pequeno">Quitar selección</button>
+        </div>
+      </div>
+      <ul id="detalle-lista" class="lista"></ul>
+    </div>
+
+    <p id="lleno" class="lleno-msg" hidden>Este palco está lleno.</p>
+    <p id="bloqueado-msg" class="bloqueado-msg" hidden></p>
+
+    <form id="formulario" class="formulario" autocomplete="off">
+      <h3 id="form-titulo">Nueva reserva</h3>
+      <p id="sel-texto" class="sel-texto"></p>
+      <div class="campos">
+        <label class="ancho">Nombre *
+          <input name="nombre" required maxlength="120">
+        </label>
+        <label>Documento
+          <input name="documento" maxlength="40">
+        </label>
+        <label>Teléfono
+          <input name="telefono" maxlength="40" inputmode="tel">
+        </label>
+        <label class="ancho">Correo electrónico
+          <input name="correo" type="email" maxlength="120" placeholder="persona@correo.com" autocomplete="off">
+        </label>
+        <label class="ancho casilla">
+          <input type="checkbox" name="autoriza_datos">
+          <span>La persona autoriza el tratamiento de sus datos y el envío de la información de su reserva a su correo (Ley 1581 de 2012).</span>
+        </label>
+        <label>Afiliación
+          <select name="afiliacion"></select>
+        </label>
+        <label>Valor total
+          <input name="valor" class="dinero" inputmode="numeric" placeholder="$ 0" autocomplete="off">
+        </label>
+        <p id="tarifa-ayuda" class="ancho tarifa-ayuda"></p>
+        <label id="campo-medio" class="ancho">Medio de pago *
+          <select name="medio_pago" class="medios"></select>
+        </label>
+        <label class="ancho">Notas / observación
+          <textarea name="notas" rows="2" maxlength="500"></textarea>
+        </label>
+        <label class="ancho">Registrado por
+          <input name="registrado_por" maxlength="60" placeholder="Tu nombre (opcional, se recuerda en este equipo)">
+        </label>
+      </div>
+
+      <!-- Al editar: estado del pago (y completar pago, solo en reservas antiguas incompletas) -->
+      <section id="bloque-pago" class="bloque-pagos" hidden>
+        <span class="campo-titulo">Pago</span>
+        <p id="pago-info" class="pago-info"></p>
+        <div id="completar-pago" class="fila-pago" hidden>
+          <select id="completar-medio" class="medios"></select>
+          <button type="button" id="completar-boton" class="boton">Completar pago</button>
+        </div>
+      </section>
+      <div id="saldos" class="saldos"></div>
+
+      <p id="form-error" class="error" hidden></p>
+      <div class="acciones">
+        <button type="button" id="cancelar-edicion" class="boton" hidden>Cancelar edición</button>
+        <button type="submit" id="guardar" class="primario">Registrar pago y reserva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="avisos" class="avisos" aria-live="polite"></div>
+
+  <script src="plano.js"></script>
+  <script src="app.js"></script>
+  <script src="finanzas.js"></script>
+  <script src="tv.js"></script>
+</body>
+</html>

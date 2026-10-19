@@ -1,0 +1,30 @@
+{
+  "respaldos": {
+    "carpeta": "D:\\sw\\BK\\AREA_DE_SERVICIOS\\EVENTOS\\GRAN FIESTA ANUAL AFILIADOS\\2026"
+  },
+
+  "correo": {
+    "activo": false,
+    "metodo": "google_script",
+    "remitente": "correo-del-evento@gmail.com",
+    "nombre_remitente": "Gran Fiesta Anual de Afiliados CESNE - CESAP",
+
+    "google_script": {
+      "url": "https://script.google.com/macros/s/.../exec",
+      "clave": "la-misma-CLAVE-que-pusiste-en-el-script"
+    },
+
+    "smtp": {
+      "servidor": "smtp.gmail.com",
+      "puerto": 465,
+      "usuario": "correo-del-evento@gmail.com",
+      "clave": ""
+    },
+
+    "graph": {
+      "tenant_id": "",
+      "client_id": "",
+      "client_secret": ""
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "correo": {
+    "activo": true,
+    "metodo": "google_script",
+    "remitente": "eventos@centrosocialdeagentes.gov.co",
+    "nombre_remitente": "Gran Fiesta Anual de Afiliados CESAP - CESNE",
+
+    "google_script": {
+      "url": "https://script.google.com/macros/s/AKfycbwx6UtG6PZLVXBTrZ3920nMCi8DfVopYDwSECPAoSNn-JpnW6VPasABR6H-h682gY1dqQ/exec",
+      "clave": "centrosocialdeagenteypratulleros2026"
+    },
+
+    "smtp": {
+      "servidor": "smtp.gmail.com",
+      "puerto": 465,
+      "usuario": "correo-del-evento@gmail.com",
+      "clave": ""
+    },
+
+    "graph": {
+      "tenant_id": "",
+      "client_id": "",
+      "client_secret": ""
+    }
+  }
+}
