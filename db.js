@@ -5,8 +5,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 const PLANO = require('./public/plano.js');
+const CLAVES = require('./lib/claves');
 
-const ESQUEMA = 7;
+const ESQUEMA = 8;
+const HORAS_SESION = 12;
 
 const DIR_DATOS = path.join(__dirname, 'data');
 fs.mkdirSync(DIR_DATOS, { recursive: true });
@@ -116,7 +118,35 @@ db.exec(`
     despues        TEXT    NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_historial_fecha ON historial(fecha);
+
+  -- Usuarios del inicio de sesión (la contraseña se guarda como huella, nunca en texto).
+  CREATE TABLE IF NOT EXISTS usuarios (
+    usuario     TEXT PRIMARY KEY COLLATE NOCASE,
+    clave       TEXT NOT NULL,
+    cambiada_en TEXT NOT NULL DEFAULT ''
+  );
+
+  -- Sesiones abiertas: token = resumen sha256 del valor de la cookie. expira_en en milisegundos.
+  CREATE TABLE IF NOT EXISTS sesiones (
+    token     TEXT    PRIMARY KEY,
+    usuario   TEXT    NOT NULL,
+    ip        TEXT    NOT NULL DEFAULT '',
+    creada_en TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    expira_en INTEGER NOT NULL
+  );
 `);
+
+// Versión 7 → 8: el historial guarda también el usuario de la sesión.
+if (!db.prepare('PRAGMA table_info(historial)').all().some(c => c.name === 'usuario')) {
+  db.exec("ALTER TABLE historial ADD COLUMN usuario TEXT NOT NULL DEFAULT ''");
+}
+
+// Usuarios iniciales (solo los que falten; nunca cambia una contraseña existente).
+{
+  const existe = db.prepare('SELECT 1 FROM usuarios WHERE usuario = ?');
+  const insertar = db.prepare('INSERT INTO usuarios (usuario, clave) VALUES (?, ?)');
+  for (const u of CLAVES.USUARIOS_INICIALES) if (!existe.get(u.usuario)) insertar.run(u.usuario, CLAVES.huella(u.clave));
+}
 
 // Actualizaciones de bases existentes (las nuevas ya se crean completas arriba).
 // Versión 2 → 3: valor de la reserva y afiliación (los pagos van en tabla nueva).
@@ -318,8 +348,15 @@ const sql = {
   borrarPagosDeReserva: db.prepare('DELETE FROM pagos WHERE reserva_id = ?'),
   ponerValor: db.prepare('UPDATE reservas SET valor = ? WHERE id = ?'),
   historial: db.prepare(`
-    INSERT INTO historial (ip, registrado_por, accion, palco, codigo, detalle, antes, despues)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+    INSERT INTO historial (ip, usuario, registrado_por, accion, palco, codigo, detalle, antes, despues)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+  usuario: db.prepare('SELECT usuario, clave FROM usuarios WHERE usuario = ?'),
+  cambiarClave: db.prepare("UPDATE usuarios SET clave = ?, cambiada_en = datetime('now', 'localtime') WHERE usuario = ?"),
+  insertarSesion: db.prepare('INSERT INTO sesiones (token, usuario, ip, expira_en) VALUES (?, ?, ?, ?)'),
+  sesion: db.prepare('SELECT usuario, expira_en FROM sesiones WHERE token = ?'),
+  borrarSesion: db.prepare('DELETE FROM sesiones WHERE token = ?'),
+  borrarOtrasSesiones: db.prepare('DELETE FROM sesiones WHERE usuario = ? AND token <> ?'),
+  borrarVencidas: db.prepare('DELETE FROM sesiones WHERE expira_en <= ?'),
   finanzasReservas: db.prepare(`
     SELECT r.id, r.codigo, r.palco, r.nombre, r.telefono, r.afiliacion, r.valor,
            (SELECT COALESCE(SUM(valor), 0) FROM pagos WHERE reserva_id = r.id) AS pagado,
@@ -452,11 +489,11 @@ function conSillas(id) {
 }
 
 // ── Historial de movimientos ────────────────────────────────────────────
-// quien = { ip, registrado_por } lo arma el servidor en cada petición.
+// quien = { ip, usuario, registrado_por } lo arma el servidor en cada petición.
 // Se guarda dentro de la misma transacción del cambio: no hay cambio sin registro.
 function registrarMovimiento(quien, accion, { palco = null, codigo = '', detalle = '', antes = null, despues = null } = {}) {
   sql.historial.run(
-    texto(quien?.ip, 60), texto(quien?.registrado_por, 60), accion, palco, codigo || '', texto(detalle, 2000),
+    texto(quien?.ip, 60), texto(quien?.usuario, 40), texto(quien?.registrado_por, 60), accion, palco, codigo || '', texto(detalle, 2000),
     antes ? JSON.stringify(antes) : '', despues ? JSON.stringify(despues) : '');
   huboCambios = true;
 }
@@ -736,6 +773,56 @@ function asignarPalcos(datos, quien) {
   });
 }
 
+// ── Inicio de sesión ────────────────────────────────────────────────────
+// Devuelve el nombre del usuario tal como está guardado (ej. "CESAP"), o null si no coincide.
+function verificarUsuario(usuario, clave) {
+  const u = sql.usuario.get(texto(usuario, 40));
+  const ok = CLAVES.coincide(String(clave ?? ''), u?.clave);
+  return u && ok ? u.usuario : null;
+}
+
+// Crea la sesión y devuelve el token para la cookie (en la base solo queda su resumen).
+function crearSesion(usuario, ip) {
+  const token = CLAVES.nuevoToken();
+  sql.insertarSesion.run(CLAVES.resumenToken(token), usuario, texto(ip, 60), Date.now() + HORAS_SESION * 3600_000);
+  return token;
+}
+
+function sesionDeToken(token) {
+  if (!token) return null;
+  const s = sql.sesion.get(CLAVES.resumenToken(token));
+  if (!s) return null;
+  if (s.expira_en <= Date.now()) {
+    sql.borrarSesion.run(CLAVES.resumenToken(token));
+    return null;
+  }
+  return { usuario: s.usuario, expira_en: s.expira_en };
+}
+
+function cerrarSesion(token) {
+  if (token) sql.borrarSesion.run(CLAVES.resumenToken(token));
+}
+
+function limpiarSesionesVencidas() {
+  sql.borrarVencidas.run(Date.now());
+}
+
+// Cambia la contraseña del usuario de la sesión y cierra sus otras sesiones abiertas.
+function cambiarClave(usuario, datos, tokenActual, quien) {
+  const actual = String(datos.actual ?? '');
+  const nueva = String(datos.nueva ?? '');
+  if (!verificarUsuario(usuario, actual)) throw new ErrorHttp(400, 'La contraseña actual no es correcta');
+  if (nueva.length < 8) throw new ErrorHttp(400, 'La nueva contraseña debe tener al menos 8 caracteres');
+  if (nueva.length > 100) throw new ErrorHttp(400, 'La nueva contraseña es demasiado larga');
+  if (nueva !== String(datos.repetir ?? '')) throw new ErrorHttp(400, 'Las dos contraseñas nuevas no coinciden');
+  if (nueva === actual) throw new ErrorHttp(400, 'La nueva contraseña debe ser distinta a la actual');
+  transaccion(() => {
+    sql.cambiarClave.run(CLAVES.huella(nueva), usuario);
+    sql.borrarOtrasSesiones.run(usuario, CLAVES.resumenToken(tokenActual));
+    registrarMovimiento(quien, 'Cambiar contraseña', { detalle: `Usuario ${usuario}. Se cerraron sus otras sesiones abiertas.` });
+  });
+}
+
 // ── Respaldos (la programación y las carpetas están en lib/respaldos.js) ─
 // Copia consistente de toda la base (funciona aunque haya gente registrando).
 function copiarBaseA(destino) {
@@ -768,6 +855,12 @@ module.exports = {
   eliminarGrupo,
   asignarPalcos,
   bloquearPalcos,
+  verificarUsuario,
+  crearSesion,
+  sesionDeToken,
+  cerrarSesion,
+  limpiarSesionesVencidas,
+  cambiarClave,
   copiarBaseA,
   hayCambios,
   cambiosRespaldados,

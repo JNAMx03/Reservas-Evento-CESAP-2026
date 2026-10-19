@@ -34,16 +34,56 @@ function avisarCambio(...palcos) {
 }
 
 // Mantiene viva la conexión aunque no haya cambios.
-setInterval(() => { for (const res of clientes) res.write(': ping\n\n'); }, 25_000);
+// Además corta las pantallas cuya sesión venció o se cerró (vuelven a pedir inicio de sesión).
+setInterval(() => {
+  for (const res of clientes) res.write(': ping\n\n');
+  cortarSesionesCerradas();
+}, 25_000);
+
+function cortarSesionesCerradas() {
+  for (const res of clientes) {
+    if (!db.sesionDeToken(res.tokenSesion)) {
+      clientes.delete(res);
+      res.end();
+    }
+  }
+}
+
+// ── Inicio de sesión ────────────────────────────────────────────────────
+const COOKIE = 'sesion';
+const SEGUNDOS_SESION = 12 * 3600;
+// Archivos que se ven sin sesión (la página de ingreso y su estilo).
+const PUBLICOS = new Set(['/login.html', '/estilos.css', '/favicon.ico']);
+
+function leerCookie(req, nombre) {
+  for (const parte of String(req.headers.cookie || '').split(';')) {
+    const i = parte.indexOf('=');
+    if (i > 0 && parte.slice(0, i).trim() === nombre) return parte.slice(i + 1).trim();
+  }
+  return '';
+}
+
+function cookieSesion(token, segundos) {
+  return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${segundos}`;
+}
+
+// Intentos fallidos por equipo: 5 seguidos → 5 minutos bloqueado.
+const MAX_INTENTOS = 5;
+const MINUTOS_BLOQUEO = 5;
+const intentos = new Map(); // ip → { fallos, hasta }
+
+function ipDe(req) {
+  return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+}
 
 // ── Quién hace cada cambio (para el historial interno) ──────────────────
-// IP del equipo + el nombre de "Registrado por" que la página envía en cada petición.
-function quien(req, url) {
-  let ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+// IP del equipo + usuario de la sesión + el nombre de "Registrado por" que la página envía.
+function quien(req, url, sesion) {
+  let ip = ipDe(req);
   if (ip === '::1' || ip === '127.0.0.1') ip = '127.0.0.1 (este servidor)';
   let nombre = '';
   try { nombre = decodeURIComponent(req.headers['x-registrado-por'] || url.searchParams.get('por') || ''); } catch { /* nombre ilegible */ }
-  return { ip, registrado_por: nombre.trim().slice(0, 60) };
+  return { ip, usuario: sesion?.usuario || '', registrado_por: nombre.trim().slice(0, 60) };
 }
 
 // ── Correo con la boleta ────────────────────────────────────────────────
@@ -118,11 +158,61 @@ function leerCuerpo(req) {
 }
 
 // ── API ─────────────────────────────────────────────────────────────────
-async function api(req, res, url) {
+async function api(req, res, url, sesion, token) {
   const ruta = url.pathname;
   const metodo = req.method;
-  const q = quien(req, url);
+  const q = quien(req, url, sesion);
   let m;
+
+  // Ingresar: única ruta de la API que funciona sin sesión.
+  if (ruta === '/api/login' && metodo === 'POST') {
+    const ip = ipDe(req);
+    const ahora = Date.now();
+    const registro = intentos.get(ip);
+    if (registro?.hasta > ahora) {
+      const minutos = Math.ceil((registro.hasta - ahora) / 60_000);
+      throw new db.ErrorHttp(429, `Demasiados intentos fallidos. Espera ${minutos} minuto(s) y vuelve a intentar.`);
+    }
+    const datos = await leerCuerpo(req);
+    const escrito = String(datos.usuario ?? '').trim().slice(0, 40);
+    const usuario = db.verificarUsuario(escrito, datos.clave);
+    if (!usuario) {
+      const fallos = (registro && !registro.hasta ? registro.fallos : 0) + 1;
+      const bloqueado = fallos >= MAX_INTENTOS;
+      intentos.set(ip, bloqueado ? { fallos, hasta: ahora + MINUTOS_BLOQUEO * 60_000 } : { fallos });
+      db.registrarMovimiento(q, 'Intento de ingreso fallido', { detalle: `Usuario escrito: "${escrito}"` });
+      if (bloqueado) {
+        db.registrarMovimiento(q, 'Equipo bloqueado por intentos', { detalle: `${fallos} intentos fallidos seguidos. Bloqueado ${MINUTOS_BLOQUEO} minutos.` });
+        throw new db.ErrorHttp(429, `Demasiados intentos fallidos. Espera ${MINUTOS_BLOQUEO} minutos y vuelve a intentar.`);
+      }
+      throw new db.ErrorHttp(401, `Usuario o contraseña incorrectos (intento ${fallos} de ${MAX_INTENTOS}).`);
+    }
+    intentos.delete(ip);
+    const nuevo = db.crearSesion(usuario, q.ip);
+    db.registrarMovimiento({ ...q, usuario }, 'Iniciar sesión', { detalle: `Usuario ${usuario}` });
+    res.setHeader('Set-Cookie', cookieSesion(nuevo, SEGUNDOS_SESION));
+    return json(res, 200, { ok: true, usuario });
+  }
+
+  if (!sesion) throw new db.ErrorHttp(401, 'Tu sesión terminó. Vuelve a iniciar sesión.');
+
+  if (ruta === '/api/sesion' && metodo === 'GET') {
+    return json(res, 200, { usuario: sesion.usuario, expira_en: sesion.expira_en });
+  }
+
+  if (ruta === '/api/logout' && metodo === 'POST') {
+    db.cerrarSesion(token);
+    db.registrarMovimiento(q, 'Cerrar sesión', { detalle: `Usuario ${sesion.usuario}` });
+    cortarSesionesCerradas();
+    res.setHeader('Set-Cookie', cookieSesion('', 0));
+    return json(res, 200, { ok: true });
+  }
+
+  if (ruta === '/api/clave' && metodo === 'POST') {
+    db.cambiarClave(sesion.usuario, await leerCuerpo(req), token, q);
+    cortarSesionesCerradas();
+    return json(res, 200, { ok: true });
+  }
 
   if (ruta === '/api/eventos' && metodo === 'GET') {
     res.writeHead(200, {
@@ -131,6 +221,7 @@ async function api(req, res, url) {
       'Connection': 'keep-alive',
     });
     res.write('retry: 3000\n\n');
+    res.tokenSesion = token;
     clientes.add(res);
     emitir('conectados', { total: clientes.size });
     req.on('close', () => {
@@ -273,8 +364,19 @@ async function api(req, res, url) {
 }
 
 // ── Archivos de la página ───────────────────────────────────────────────
-function servirArchivo(req, res, ruta) {
+function redirigir(res, destino) {
+  res.writeHead(302, { Location: destino, 'Cache-Control': 'no-store' });
+  res.end();
+}
+
+function servirArchivo(req, res, ruta, sesion) {
   if (req.method !== 'GET' && req.method !== 'HEAD') throw new db.ErrorHttp(405, 'Método no permitido');
+  // Sin sesión solo se ve la página de ingreso. Con sesión, la de ingreso lleva al sistema.
+  if (!sesion && !PUBLICOS.has(ruta)) {
+    if (ruta === '/' || ruta.endsWith('.html')) return redirigir(res, '/login.html');
+    throw new db.ErrorHttp(401, 'Inicia sesión primero');
+  }
+  if (sesion && ruta === '/login.html') return redirigir(res, '/');
   let relativa;
   try { relativa = decodeURIComponent(ruta === '/' ? '/index.html' : ruta); }
   catch { throw new db.ErrorHttp(400, 'Ruta inválida'); }
@@ -298,8 +400,10 @@ function servirArchivo(req, res, ruta) {
 const servidor = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
-    if (url.pathname.startsWith('/api/')) await api(req, res, url);
-    else servirArchivo(req, res, url.pathname);
+    const token = leerCookie(req, COOKIE);
+    const sesion = db.sesionDeToken(token);
+    if (url.pathname.startsWith('/api/')) await api(req, res, url, sesion, token);
+    else servirArchivo(req, res, url.pathname, sesion);
   } catch (err) {
     const status = err.status || 500;
     if (status === 500) console.error(err);
@@ -318,8 +422,11 @@ servidor.listen(PUERTO, '0.0.0.0', () => {
   console.log(`\n  Respaldos en:     ${respaldos.carpetaConfigurada()}`);
   const ec = correo.estado();
   console.log(ec.activo ? `  Correo:           activo (${ec.metodo}${ec.remitente ? `, ${ec.remitente}` : ''})` : `  Correo:           NO ACTIVO → ${ec.problema}`);
+  console.log('  Ingreso:          usuarios CESAP y CESNE (sesión de 12 horas)');
   console.log('\n  No cierres esta ventana mientras se use el sistema.\n');
   respaldos.iniciar();
+  db.limpiarSesionesVencidas();
+  setInterval(() => db.limpiarSesionesVencidas(), 3600_000);
 });
 
 servidor.on('error', err => {

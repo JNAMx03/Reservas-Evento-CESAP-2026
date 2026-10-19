@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingresar · GRAN FIESTA ANUAL DE AFILIADOS - CESNE - CESAP</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body class="pagina-ingreso">
+  <main class="ingreso">
+    <form id="ingreso" class="ingreso-caja" autocomplete="on">
+      <p class="ingreso-sub">Sistema de reservas de palcos</p>
+      <h1>GRAN FIESTA ANUAL DE AFILIADOS<br>CESNE - CESAP</h1>
+      <div class="campos">
+        <label class="ancho">Usuario
+          <input name="usuario" required maxlength="40" autocomplete="username" autocapitalize="characters" autofocus>
+        </label>
+        <label class="ancho">Contraseña
+          <span class="clave-caja">
+            <input name="clave" type="password" required maxlength="100" autocomplete="current-password">
+            <button type="button" class="enlace" id="ver-clave" aria-label="Mostrar contraseña">Mostrar</button>
+          </span>
+        </label>
+      </div>
+      <p id="ingreso-error" class="error" role="alert" hidden></p>
+      <button type="submit" class="primario ingreso-boton">Ingresar</button>
+    </form>
+  </main>
+
+  <script>
+    const form = document.getElementById('ingreso');
+    const error = document.getElementById('ingreso-error');
+    const verClave = document.getElementById('ver-clave');
+
+    verClave.addEventListener('click', () => {
+      const oculta = form.clave.type === 'password';
+      form.clave.type = oculta ? 'text' : 'password';
+      verClave.textContent = oculta ? 'Ocultar' : 'Mostrar';
+      verClave.setAttribute('aria-label', oculta ? 'Ocultar contraseña' : 'Mostrar contraseña');
+    });
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      const boton = form.querySelector('[type=submit]');
+      boton.disabled = true;
+      error.hidden = true;
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ usuario: form.usuario.value, clave: form.clave.value }),
+        });
+        const datos = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
+        location.replace('/' + location.hash);
+      } catch (err) {
+        error.textContent = err.message === 'Failed to fetch' ? 'No hay conexión con el servidor' : err.message;
+        error.hidden = false;
+        form.clave.select();
+      } finally {
+        boton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

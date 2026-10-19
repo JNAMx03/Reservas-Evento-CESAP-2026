@@ -27,8 +27,9 @@ const corto = (t, max = 32000) => (t && t.length > max ? `${t.slice(0, max)}…`
 const porEquipo = new Map();
 const porAccion = new Map();
 for (const f of filas) {
-  const e = porEquipo.get(f.ip) || { nombres: new Set(), total: 0, ultimo: f.fecha };
+  const e = porEquipo.get(f.ip) || { nombres: new Set(), usuarios: new Set(), total: 0, ultimo: f.fecha };
   if (f.registrado_por) e.nombres.add(f.registrado_por);
+  if (f.usuario) e.usuarios.add(f.usuario);
   e.total++;
   if (f.fecha > e.ultimo) e.ultimo = f.fecha;
   porEquipo.set(f.ip, e);
@@ -39,23 +40,23 @@ const libro = XLSX.crear([
   {
     nombre: 'Historial',
     columnas: [
-      { titulo: 'Fecha y hora', ancho: 19 }, { titulo: 'Equipo (IP)', ancho: 22 }, { titulo: 'Registrado por', ancho: 18 },
+      { titulo: 'Fecha y hora', ancho: 19 }, { titulo: 'Equipo (IP)', ancho: 22 }, { titulo: 'Usuario (sesión)', ancho: 16 }, { titulo: 'Registrado por', ancho: 18 },
       { titulo: 'Acción', ancho: 24 }, { titulo: 'Palco', ancho: 8, tipo: 'numero' }, { titulo: 'Código', ancho: 11 },
       { titulo: 'Detalle', ancho: 60, tipo: 'largo' }, { titulo: 'Antes (datos completos)', ancho: 50, tipo: 'largo' },
       { titulo: 'Después (datos completos)', ancho: 50, tipo: 'largo' },
     ],
-    filas: filas.map(f => [fecha(f.fecha), f.ip, f.registrado_por || '(sin nombre)', f.accion, f.palco ?? '', f.codigo,
+    filas: filas.map(f => [fecha(f.fecha), f.ip, f.usuario || '', f.registrado_por || '(sin nombre)', f.accion, f.palco ?? '', f.codigo,
       f.detalle, corto(f.antes), corto(f.despues)]),
   },
   {
     nombre: 'Por equipo',
     columnas: [
-      { titulo: 'Equipo (IP)', ancho: 22 }, { titulo: 'Nombres usados en "Registrado por"', ancho: 40 },
+      { titulo: 'Equipo (IP)', ancho: 22 }, { titulo: 'Usuarios (sesión)', ancho: 18 }, { titulo: 'Nombres usados en "Registrado por"', ancho: 40 },
       { titulo: 'Movimientos', ancho: 12, tipo: 'numero' }, { titulo: 'Último movimiento', ancho: 19 },
     ],
     totales: true,
     filas: [...porEquipo].sort((a, b) => b[1].total - a[1].total)
-      .map(([ip, e]) => [ip, [...e.nombres].join(', ') || '(sin nombre)', e.total, fecha(e.ultimo)]),
+      .map(([ip, e]) => [ip, [...e.usuarios].join(', '), [...e.nombres].join(', ') || '(sin nombre)', e.total, fecha(e.ultimo)]),
   },
   {
     nombre: 'Por acción',

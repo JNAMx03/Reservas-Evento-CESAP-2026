@@ -1,6 +1,6 @@
 # Reservas de Palcos — sistema interno
 
-Registro y consulta de reservas: 340 palcos de 10 sillas cada uno. Funciona solo dentro de la red de la empresa, sin login y sin internet.
+Registro y consulta de reservas: 340 palcos de 10 sillas cada uno. Funciona solo dentro de la red de la empresa, con inicio de sesión (usuarios CESAP y CESNE).
 
 ## Qué hay en la carpeta
 
@@ -20,6 +20,7 @@ Registro y consulta de reservas: 340 palcos de 10 sillas cada uno. Funciona solo
 | `iniciar.bat` | Doble clic para arrancar el sistema |
 | `restaurar-respaldo.bat` | Restaurar la base de datos desde un respaldo (con el sistema cerrado) |
 | `exportar-historial.bat` | Genera el Excel del historial interno de movimientos (solo en el servidor) |
+| `restablecer-contrasena.bat` | Devuelve la contraseña de CESAP o CESNE a la de por defecto (si alguien la olvida) |
 
 Todo queda dentro de esta carpeta. No modifica nada más del servidor.
 
@@ -40,6 +41,7 @@ Todo queda dentro de esta carpeta. No modifica nada más del servidor.
 ## Uso
 
 Desde cualquier PC o celular conectado a la red de la empresa, abrir en el navegador `http://IP-DEL-SERVIDOR:3000`.
+Primero aparece la página de **ingreso** (ver "Inicio de sesión" más abajo).
 
 - **El plano** muestra los 340 palcos. Cada casilla tiene una mini U con 10 puntos, y los puntos rellenos son sillas ocupadas.
 - **Clic en un palco**: se abren sus 10 sillas en U mirando a la tarima.
@@ -231,7 +233,7 @@ La ruta se puede cambiar en `config.json` → `"respaldos": { "carpeta": "..." }
 
 ## Historial de movimientos (control interno)
 
-El sistema guarda cada cambio con: fecha y hora, **IP del equipo**, **"Registrado por"** (el nombre que tiene ese equipo en el formulario), acción, palco, código de reserva, un detalle legible (ej. `sillas: "3, 4" → "5, 6"`) y los datos completos de antes y después.
+El sistema guarda cada cambio con: fecha y hora, **IP del equipo**, **usuario de la sesión** (CESAP o CESNE), **"Registrado por"** (el nombre que tiene ese equipo en el formulario), acción, palco, código de reserva, un detalle legible (ej. `sillas: "3, 4" → "5, 6"`) y los datos completos de antes y después.
 
 - **Qué se registra:**
   - reservas creadas (con su pago), editadas y anuladas;
@@ -239,6 +241,7 @@ El sistema guarda cada cambio con: fecha y hora, **IP del equipo**, **"Registrad
   - bloqueos y desbloqueos, asignación de zona y empresa;
   - categorías y empresas (incluidos los cambios de precio);
   - envíos de correo, correos de prueba y descargas del Excel.
+  - ingresos, intentos fallidos, bloqueos por intentos, cierres de sesión y cambios o restablecimientos de contraseña.
 - **No se ve en la página.** No hay pestaña, botón ni dirección para consultarlo.
 - **Para consultarlo, en el servidor:** abre **`exportar-historial.bat`**. Genera un Excel en la carpeta de respaldos (`historial\`) con tres hojas: el historial completo con filtros, un resumen por equipo y un resumen por acción. Se puede usar con el sistema abierto.
 - El historial queda dentro de la base de datos, así que también se respalda.
@@ -247,3 +250,28 @@ El sistema guarda cada cambio con: fecha y hora, **IP del equipo**, **"Registrad
 
 - **Plano y palcos**: en `public/plano.js`. Los palcos se numeran en el mismo orden del plano original. Desde la fila del 135, la numeración es consecutiva: se corrigieron el 137 repetido y el 306 que faltaba.
 - **Puerto**: editar `PUERTO` en `server.js`.
+
+## Inicio de sesión
+
+Sin iniciar sesión no se ve nada: ni el plano, ni Finanzas, ni la Pantalla TV, ni el Excel, ni las boletas.
+
+| Usuario | Contraseña por defecto |
+|---|---|
+| `CESAP` | `Cesap2026*` |
+| `CESNE` | `Cesne2026*` |
+
+- El usuario se puede escribir en mayúsculas o minúsculas. La contraseña distingue mayúsculas.
+- Los dos usuarios tienen los mismos permisos.
+- **La sesión dura 12 horas** o hasta tocar **Cerrar sesión**. El televisor inicia sesión una vez y queda 12 horas.
+- **5 intentos fallidos seguidos** desde un equipo lo bloquean **5 minutos**.
+- Las contraseñas no se guardan en texto: la base de datos solo tiene una huella cifrada (scrypt).
+
+### Cambiar la contraseña
+
+Arriba a la derecha: **⚙ Configuración** → contraseña actual, nueva y repetir la nueva (mínimo 8 caracteres). Al cambiarla se cierran las sesiones de ese usuario en los demás equipos; en el equipo donde se cambió sigue abierta.
+
+### Si alguien olvida la contraseña
+
+En el servidor, abre **`restablecer-contrasena.bat`**, escribe el usuario (CESAP o CESNE) y luego **SI**. La contraseña vuelve a la de por defecto y se cierran sus sesiones abiertas. Se puede usar con el sistema abierto y queda en el historial interno.
+
+> La página funciona por `http://` dentro de la red interna, así que la contraseña viaja sin cifrar por la red local. Si sistemas exige HTTPS, se puede agregar con un certificado que ellos entreguen.

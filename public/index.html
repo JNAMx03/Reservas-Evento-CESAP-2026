@@ -11,11 +11,18 @@
     <div class="titulo">
       <h1>GRAN FIESTA ANUAL DE AFILIADOS - CESNE - CESAP</h1>
       <span id="conexion" class="conexion">Conectando…</span>
+      <div class="cabecera-derecha">
       <nav id="pestanas" class="pestanas" aria-label="Secciones">
         <a href="#registro" data-vista="registro">Registro</a>
         <a href="#finanzas" data-vista="finanzas">Finanzas</a>
         <a href="#tv" data-vista="tv">Pantalla TV</a>
       </nav>
+      <div class="sesion">
+        <span id="sesion-usuario" class="sesion-usuario"></span>
+        <button type="button" id="abrir-config" class="boton pequeno">⚙ Configuración</button>
+        <button type="button" id="cerrar-sesion" class="boton pequeno">Cerrar sesión</button>
+      </div>
+      </div>
     </div>
   </header>
 
@@ -266,6 +273,41 @@
       <div class="acciones">
         <button type="button" id="cancelar-edicion" class="boton" hidden>Cancelar edición</button>
         <button type="submit" id="guardar" class="primario">Registrar pago y reserva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ═══════════════ CONFIGURACIÓN ═══════════════ -->
+  <dialog id="configuracion" class="dialogo-config">
+    <div class="detalle-cab">
+      <div>
+        <h2>Configuración</h2>
+        <p class="suave">Sesión iniciada como <strong id="config-usuario"></strong></p>
+      </div>
+      <button type="button" id="cerrar-config" class="cerrar" aria-label="Cerrar">×</button>
+    </div>
+
+    <form id="form-clave" autocomplete="off">
+      <h3>Cambiar contraseña</h3>
+      <div class="campos">
+        <label class="ancho">Contraseña actual
+          <input name="actual" type="password" required maxlength="100" autocomplete="current-password">
+        </label>
+        <label>Nueva contraseña
+          <input name="nueva" type="password" required minlength="8" maxlength="100" autocomplete="new-password">
+        </label>
+        <label>Repetir nueva contraseña
+          <input name="repetir" type="password" required minlength="8" maxlength="100" autocomplete="new-password">
+        </label>
+        <label class="ancho casilla">
+          <input type="checkbox" id="ver-claves">
+          <span>Mostrar las contraseñas</span>
+        </label>
+      </div>
+      <p class="suave pequeno">Mínimo 8 caracteres. Al cambiarla se cierra la sesión de este usuario en los demás equipos; en este equipo sigues conectado.</p>
+      <p id="clave-error" class="error" role="alert" hidden></p>
+      <div class="acciones">
+        <button type="submit" class="primario">Cambiar contraseña</button>
       </div>
     </form>
   </dialog>

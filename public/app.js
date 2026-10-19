@@ -54,9 +54,21 @@ async function api(metodo, ruta, cuerpo) {
   let res;
   try { res = await fetch(ruta, opciones); }
   catch { throw new Error('No hay conexión con el servidor'); }
+  if (res.status === 401) irAlIngreso(); // la sesión venció o se cerró
   const datos = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(datos.error || `Error ${res.status}`);
   return datos;
+}
+
+// ── Sesión ──────────────────────────────────────────────────────────────
+function irAlIngreso() {
+  location.replace('/login.html' + location.hash);
+}
+
+async function cargarSesion() {
+  const { usuario } = await api('GET', '/api/sesion');
+  $('#sesion-usuario').textContent = `Sesión: ${usuario}`;
+  $('#config-usuario').textContent = usuario;
 }
 
 function aviso(texto, tipo = '') {
@@ -979,6 +991,8 @@ function conectarEventos() {
   fuente.onerror = () => {
     conexion.textContent = 'Sin conexión, reintentando…';
     conexion.className = 'conexion caida';
+    // Si lo que pasó es que la sesión terminó, volver a la página de ingreso.
+    fetch('/api/sesion').then(r => { if (r.status === 401) irAlIngreso(); }).catch(() => {});
   };
   fuente.addEventListener('conectados', e => {
     const { total } = JSON.parse(e.data);
@@ -1224,6 +1238,52 @@ document.addEventListener('click', e => {
   const enlace = e.target.closest('a[href^="/api/exportar.xlsx"]');
   if (enlace) enlace.href = `/api/exportar.xlsx?por=${encodeURIComponent(leerLocal('registrado_por'))}`;
 });
+// ── Sesión y Configuración ──────────────────────────────────────────────
+const dialogoConfig = $('#configuracion');
+const formClave = $('#form-clave');
+
+$('#cerrar-sesion').addEventListener('click', async () => {
+  if (!confirm('¿Cerrar la sesión en este equipo?')) return;
+  try { await api('POST', '/api/logout'); } catch { /* igual se va al ingreso */ }
+  irAlIngreso();
+});
+
+$('#abrir-config').addEventListener('click', () => {
+  formClave.reset();
+  $('#clave-error').hidden = true;
+  formClave.querySelectorAll('input[type=text]').forEach(i => { i.type = 'password'; });
+  dialogoConfig.showModal();
+});
+$('#cerrar-config').addEventListener('click', () => dialogoConfig.close());
+
+$('#ver-claves').addEventListener('change', e => {
+  for (const nombre of ['actual', 'nueva', 'repetir']) formClave[nombre].type = e.target.checked ? 'text' : 'password';
+});
+
+formClave.addEventListener('submit', async e => {
+  e.preventDefault();
+  const error = $('#clave-error');
+  const boton = formClave.querySelector('[type=submit]');
+  error.hidden = true;
+  const datos = { actual: formClave.actual.value, nueva: formClave.nueva.value, repetir: formClave.repetir.value };
+  if (datos.nueva !== datos.repetir) {
+    error.textContent = 'Las dos contraseñas nuevas no coinciden';
+    error.hidden = false;
+    return;
+  }
+  boton.disabled = true;
+  try {
+    await api('POST', '/api/clave', datos);
+    dialogoConfig.close();
+    aviso('Contraseña cambiada. Úsala la próxima vez que inicies sesión.');
+  } catch (err) {
+    error.textContent = err.message;
+    error.hidden = false;
+  } finally {
+    boton.disabled = false;
+  }
+});
+
 $('#cancelar-edicion').addEventListener('click', cancelarEdicion);
 $('#cerrar').addEventListener('click', () => dialogo.close());
 dialogo.addEventListener('click', e => {
@@ -1244,6 +1304,7 @@ aplicarZoom(estado.zoom);
 // finanzas.js y tv.js se cargan después de este archivo: se arranca cuando todo está listo.
 window.addEventListener('DOMContentLoaded', () => {
   mostrarVista();
+  cargarSesion().catch(err => console.error(err));
   cargarEstado()
     .then(() => Promise.all(alActualizar.map(fn => fn(null))))
     .catch(err => aviso(err.message, 'error'));
