@@ -72,6 +72,16 @@ const MAX_INTENTOS = 5;
 const MINUTOS_BLOQUEO = 5;
 const intentos = new Map(); // ip → { fallos, hasta }
 
+// Permisos por rol (se revisan aquí, no solo escondiendo botones en la página).
+// 'ingreso': ve todo en modo consulta y solo puede usar la pestaña Ingreso.
+// 'admin' (CESAP, CESNE): todo como siempre; la pestaña Ingreso solo la ve.
+const CONSULTA_INGRESO = [/^\/api\/estado$/, /^\/api\/palcos\/\d+$/, /^\/api\/buscar$/, /^\/api\/finanzas$/, /^\/api\/eventos$/];
+function permitido(rol, metodo, ruta) {
+  const deIngreso = ruta.startsWith('/api/ingreso/');
+  if (rol === 'ingreso') return deIngreso || (metodo === 'GET' && CONSULTA_INGRESO.some(re => re.test(ruta)));
+  return !deIngreso || metodo === 'GET';
+}
+
 function ipDe(req) {
   return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 }
@@ -191,13 +201,13 @@ async function api(req, res, url, sesion, token) {
     const nuevo = db.crearSesion(usuario, q.ip);
     db.registrarMovimiento({ ...q, usuario }, 'Iniciar sesión', { detalle: `Usuario ${usuario}` });
     res.setHeader('Set-Cookie', cookieSesion(nuevo, SEGUNDOS_SESION));
-    return json(res, 200, { ok: true, usuario });
+    return json(res, 200, { ok: true, usuario, rol: db.sesionDeToken(nuevo)?.rol });
   }
 
   if (!sesion) throw new db.ErrorHttp(401, 'Tu sesión terminó. Vuelve a iniciar sesión.');
 
   if (ruta === '/api/sesion' && metodo === 'GET') {
-    return json(res, 200, { usuario: sesion.usuario, expira_en: sesion.expira_en });
+    return json(res, 200, { usuario: sesion.usuario, rol: sesion.rol, expira_en: sesion.expira_en });
   }
 
   if (ruta === '/api/logout' && metodo === 'POST') {
@@ -212,6 +222,26 @@ async function api(req, res, url, sesion, token) {
     db.cambiarClave(sesion.usuario, await leerCuerpo(req), token, q);
     cortarSesionesCerradas();
     return json(res, 200, { ok: true });
+  }
+
+  if (!permitido(sesion.rol, metodo, ruta)) {
+    throw new db.ErrorHttp(403, sesion.rol === 'ingreso'
+      ? 'El usuario INGRESO solo puede consultar aquí. Los cambios se hacen con CESAP o CESNE.'
+      : 'El registro de ingresos se hace solo con el usuario INGRESO.');
+  }
+
+  // ── Ingreso al evento ──
+  if (ruta === '/api/ingreso/estado' && metodo === 'GET') {
+    return json(res, 200, db.estadoIngresos());
+  }
+  if (ruta === '/api/ingreso/consultar' && metodo === 'POST') {
+    return json(res, 200, db.consultarIngreso(await leerCuerpo(req), q));
+  }
+  if ((m = ruta.match(/^\/api\/ingreso\/(registrar|deshacer)$/)) && metodo === 'POST') {
+    const datos = await leerCuerpo(req);
+    const info = m[1] === 'registrar' ? db.registrarIngreso(datos, q) : db.deshacerIngreso(datos, q);
+    emitir('ingreso', { palco: info.palco, codigo: info.codigo, accion: m[1] });
+    return json(res, 200, info);
   }
 
   if (ruta === '/api/eventos' && metodo === 'GET') {
@@ -422,7 +452,7 @@ servidor.listen(PUERTO, '0.0.0.0', () => {
   console.log(`\n  Respaldos en:     ${respaldos.carpetaConfigurada()}`);
   const ec = correo.estado();
   console.log(ec.activo ? `  Correo:           activo (${ec.metodo}${ec.remitente ? `, ${ec.remitente}` : ''})` : `  Correo:           NO ACTIVO → ${ec.problema}`);
-  console.log('  Ingreso:          usuarios CESAP y CESNE (sesión de 12 horas)');
+  console.log('  Usuarios:         CESAP y CESNE (todo) · INGRESO (puerta del evento) · sesión de 12 horas');
   console.log('\n  No cierres esta ventana mientras se use el sistema.\n');
   respaldos.iniciar();
   db.limpiarSesionesVencidas();

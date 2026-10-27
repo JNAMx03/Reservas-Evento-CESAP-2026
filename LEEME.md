@@ -138,7 +138,7 @@ No desactives la verificación de certificados (`NODE_TLS_REJECT_UNAUTHORIZED=0`
 
 ## Exportar a Excel
 
-El botón **Exportar a Excel** (en Registro y en Finanzas) descarga un archivo `.xlsx` con 4 hojas:
+El botón **Exportar a Excel** (en Registro y en Finanzas, solo para CESAP y CESNE) descarga un archivo `.xlsx` con 6 hojas:
 
 | Hoja | Contenido |
 |---|---|
@@ -146,6 +146,8 @@ El botón **Exportar a Excel** (en Registro y en Finanzas) descarga un archivo `
 | **Reservas** | Una fila por reserva: código, palco, zona, empresa, sillas, datos de contacto, correo, afiliación, valor pagado, medio y fecha de pago, estado, estado del correo, notas y fechas |
 | **Pagos** | Cada pago con fecha, código de reserva, palco, responsable, medio y valor |
 | **Palcos** | Los 340 palcos con zona, precio, empresa, estado (vacío, con reservas, lleno o bloqueado), sillas ocupadas y libres, y recaudado |
+| **Asistencia** | Una fila por reserva: personas, cuántas ingresaron, cuántas faltan, estado (completa, parcial, sin llegar) y hora del primer y último ingreso |
+| **Ingresos** | Cada ingreso registrado en la puerta: fecha y hora, código, palco, nombre, personas, puerta y usuario |
 
 Todas las hojas tienen encabezados con color, valores en pesos, fila de **totales**, **filtros** y la primera fila fija. Este Excel **no** incluye el historial interno.
 
@@ -259,9 +261,12 @@ Sin iniciar sesión no se ve nada: ni el plano, ni Finanzas, ni la Pantalla TV, 
 |---|---|
 | `CESAP` | `Cesap2026*` |
 | `CESNE` | `Cesne2026*` |
+| `INGRESO` | `Ingreso2026*` |
 
 - El usuario se puede escribir en mayúsculas o minúsculas. La contraseña distingue mayúsculas.
-- Los dos usuarios tienen los mismos permisos.
+- **CESAP y CESNE** tienen los mismos permisos: hacen todo, como siempre. La pestaña **Ingreso** solo la ven (no registran ingresos).
+- **INGRESO** es para la puerta del evento: ve todas las pestañas en **modo consulta** (sin formularios, sin Editar/Anular/Bloquear, sin Organizar palcos, sin Excel ni boletas) y es el único que registra ingresos. Al iniciar sesión abre directo la pestaña Ingreso. Varias puertas pueden usar INGRESO al mismo tiempo.
+- Estos permisos los controla el servidor, no solo la página.
 - **La sesión dura 12 horas** o hasta tocar **Cerrar sesión**. El televisor inicia sesión una vez y queda 12 horas.
 - **5 intentos fallidos seguidos** desde un equipo lo bloquean **5 minutos**.
 - Las contraseñas no se guardan en texto: la base de datos solo tiene una huella cifrada (scrypt).
@@ -272,6 +277,34 @@ Arriba a la derecha: **⚙ Configuración** → contraseña actual, nueva y repe
 
 ### Si alguien olvida la contraseña
 
-En el servidor, abre **`restablecer-contrasena.bat`**, escribe el usuario (CESAP o CESNE) y luego **SI**. La contraseña vuelve a la de por defecto y se cierran sus sesiones abiertas. Se puede usar con el sistema abierto y queda en el historial interno.
+En el servidor, abre **`restablecer-contrasena.bat`**, escribe el usuario (CESAP, CESNE o INGRESO) y luego **SI**. La contraseña vuelve a la de por defecto y se cierran sus sesiones abiertas. Se puede usar con el sistema abierto y queda en el historial interno.
 
 > La página funciona por `http://` dentro de la red interna, así que la contraseña viaja sin cifrar por la red local. Si sistemas exige HTTPS, se puede agregar con un certificado que ellos entreguen.
+
+## Ingreso al evento (pestaña Ingreso)
+
+El día del evento, en cada puerta, un equipo con sesión **INGRESO** y la pistola lectora.
+
+**Antes de empezar:** en la pestaña Ingreso, escribe el nombre de la puerta (por ejemplo `Puerta 1`). Queda guardado en ese equipo.
+
+### Con la pistola (Honeywell Xenon 1900)
+1. Conéctala por USB. Funciona como teclado, sin instalar nada.
+2. Dispara sobre el QR de la boleta (en el celular o impreso). **No hace falta hacer clic en ningún campo.** Aunque la pistola escriba varias líneas o dañe tildes y símbolos, la página encuentra el código `FA-XXXX`.
+3. Aparece la tarjeta:
+   - 🟢 **Puede ingresar**: con cuántas personas vienen ya marcado (todas las que faltan). Con las flechas ↑ ↓ o los botones − / + se cambia si llegan menos. **Enter** registra.
+   - 🟡 **Ya ingresaron algunas**: muestra cuántas y a qué hora; se registran las que faltan con el mismo QR.
+   - 🔴 **Ya ingresó completa**: puede ser un QR repetido. Muestra la hora y la puerta de cada ingreso.
+   - ❌ **Código no válido**: el código no existe o la reserva fue anulada.
+4. Suena un pitido distinto para cada caso.
+
+**Sin QR:** escribe el código en "Código de reserva" (`FA-WGGU` o solo `WGGU`) y presiona Enter.
+
+**Si se registró por error:** en la tarjeta, **Deshacer** quita el último ingreso de esa reserva. Queda en el historial interno.
+
+Nunca se puede registrar más personas de las que tiene la reserva, aunque dos puertas lean el mismo QR al mismo tiempo.
+
+### Lo que se ve en la pestaña
+- **Últimos ingresos** de todas las puertas, al instante.
+- **Asistencia en vivo**: personas que han ingresado de las esperadas, reservas completas, parciales y sin llegar, el plano con cada palco coloreado (gris: no ha llegado nadie; amarillo: llegaron algunos; verde: completo), asistencia por zona y por empresa, y una gráfica de ingresos cada 15 minutos. **⛶ Pantalla completa** amplía solo esta gráfica.
+- En el detalle de cada palco (pestaña Registro) aparece "Ingresaron X de N al evento".
+- Si se anula una reserva que ya tenía ingresos, la página avisa y esos ingresos salen del conteo.

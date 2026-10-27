@@ -16,6 +16,7 @@
         <a href="#registro" data-vista="registro">Registro</a>
         <a href="#finanzas" data-vista="finanzas">Finanzas</a>
         <a href="#tv" data-vista="tv">Pantalla TV</a>
+        <a href="#ingreso" data-vista="ingreso">Ingreso</a>
       </nav>
       <div class="sesion">
         <span id="sesion-usuario" class="sesion-usuario"></span>
@@ -52,8 +53,8 @@
         <button type="button" id="zoom-mas" aria-label="Acercar">+</button>
       </div>
     </div>
-    <button type="button" id="organizar" class="boton">Organizar palcos</button>
-    <a class="boton" href="/api/exportar.xlsx">Exportar a Excel</a>
+    <button type="button" id="organizar" class="boton solo-admin">Organizar palcos</button>
+    <a class="boton solo-admin" href="/api/exportar.xlsx">Exportar a Excel</a>
   </div>
 
   <section id="resultados" class="resultados" hidden></section>
@@ -133,7 +134,7 @@
   <section id="vista-finanzas" class="vista finanzas" hidden>
     <div class="fin-cabecera">
       <h2>Finanzas</h2>
-      <a class="boton" href="/api/exportar.xlsx">Exportar a Excel</a>
+      <a class="boton solo-admin" href="/api/exportar.xlsx">Exportar a Excel</a>
     </div>
     <div id="fin-tarjetas" class="resumen"></div>
 
@@ -188,6 +189,70 @@
     </div>
   </section>
 
+  <!-- ═══════════════ INGRESO AL EVENTO ═══════════════ -->
+  <section id="vista-ingreso" class="vista ing-vista" hidden>
+    <div class="ing-cabecera">
+      <h2>Ingreso al evento</h2>
+      <label class="ing-puerta solo-ingreso">Puerta
+        <input id="ing-puerta" maxlength="40" placeholder="Ej: Puerta 1" autocomplete="off">
+      </label>
+      <span id="ing-lector" class="ing-lector solo-ingreso">● Listo para leer</span>
+      <span class="ing-aviso-admin solo-admin suave pequeno">Solo visualización. Los ingresos se registran con el usuario INGRESO.</span>
+    </div>
+
+    <div class="ing-grilla">
+      <div class="ing-izq">
+        <form id="ing-form" class="tarjeta ing-form solo-ingreso" autocomplete="off">
+          <label>Código de reserva
+            <span class="fila-form">
+              <input id="ing-codigo" placeholder="FA-XXXX o solo XXXX" maxlength="30" autocapitalize="characters" spellcheck="false">
+              <button type="submit" class="boton">Consultar</button>
+            </span>
+          </label>
+          <p class="suave pequeno">Con la pistola: dispara sobre el QR, no hace falta hacer clic en nada. Luego <strong>Enter</strong> para confirmar.</p>
+        </form>
+
+        <div id="ing-tarjeta" class="ing-tarjeta solo-ingreso espera">
+          <div class="ing-espera">Esperando lectura del código QR…</div>
+        </div>
+
+        <div class="tarjeta">
+          <h3>Últimos ingresos</h3>
+          <ol id="ing-ultimos" class="ing-ultimos"></ol>
+        </div>
+      </div>
+
+      <!-- Gráfica en vivo (se puede ampliar a pantalla completa) -->
+      <div id="ing-grafica" class="ing-grafica">
+        <div class="ing-graf-cab">
+          <h3 id="ing-graf-titulo">Asistencia en vivo</h3>
+          <span id="ing-hora" class="suave pequeno"></span>
+          <button type="button" id="ing-completa" class="boton pequeno">⛶ Pantalla completa</button>
+        </div>
+        <div class="ing-total">
+          <div class="ing-total-num"><strong id="ing-personas">0</strong> <span>de <b id="ing-esperadas">0</b> personas han ingresado</span></div>
+          <strong id="ing-pct" class="ing-pct">0%</strong>
+        </div>
+        <div class="barra-avance ing-barra"><i id="ing-barra"></i></div>
+        <div id="ing-datos" class="resumen ing-datos"></div>
+        <div class="ing-graf-cuerpo">
+          <div class="ing-plano"><svg id="plano-ing" class="plano" role="img" aria-label="Plano de asistencia"></svg></div>
+          <div class="ing-lateral">
+            <div class="ing-leyenda">
+              <span><i style="background:#e4e8ed"></i>Sin reservas</span>
+              <span><i style="background:#8d96a3"></i>No ha llegado nadie</span>
+              <span><i style="background:#ffc94d"></i>Llegaron algunos</span>
+              <span><i style="background:#1fa36a"></i>Completo</span>
+            </div>
+            <div><h4>Por zona</h4><div id="ing-zonas" class="tv-barras"></div></div>
+            <div><h4>Por empresa</h4><div id="ing-empresas" class="tv-barras"></div></div>
+            <div><h4>Ingresos cada 15 minutos</h4><div id="ing-serie" class="ing-serie"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <dialog id="detalle">
     <div class="detalle-cab">
       <div>
@@ -196,7 +261,7 @@
         <p id="detalle-ocupacion" class="suave"></p>
       </div>
       <div class="detalle-acciones">
-        <button type="button" id="bloquear-palco" class="boton pequeno">Bloquear palco</button>
+        <button type="button" id="bloquear-palco" class="boton pequeno solo-admin">Bloquear palco</button>
         <button type="button" id="cerrar" class="cerrar" aria-label="Cerrar">×</button>
       </div>
     </div>
@@ -209,7 +274,7 @@
           <span><i class="l-sel"></i>Seleccionada</span>
           <span><i class="l-ocupada"></i>Ocupada (color por persona)</span>
         </div>
-        <div class="sillas-botones">
+        <div class="sillas-botones solo-admin">
           <button type="button" id="sel-libres" class="boton pequeno">Seleccionar libres</button>
           <button type="button" id="sel-ninguna" class="boton pequeno">Quitar selección</button>
         </div>
@@ -318,5 +383,6 @@
   <script src="app.js"></script>
   <script src="finanzas.js"></script>
   <script src="tv.js"></script>
+  <script src="ingreso.js"></script>
 </body>
 </html>

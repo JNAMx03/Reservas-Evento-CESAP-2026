@@ -66,10 +66,16 @@ function irAlIngreso() {
 }
 
 async function cargarSesion() {
-  const { usuario } = await api('GET', '/api/sesion');
-  $('#sesion-usuario').textContent = `Sesión: ${usuario}`;
+  const { usuario, rol } = await api('GET', '/api/sesion');
+  estado.rol = rol || 'admin';
+  document.body.classList.toggle('rol-ingreso', estado.rol === 'ingreso');
+  document.body.classList.toggle('rol-admin', estado.rol !== 'ingreso');
+  $('#sesion-usuario').textContent = `Sesión: ${usuario}${estado.rol === 'ingreso' ? ' · solo consulta e ingreso' : ''}`;
   $('#config-usuario').textContent = usuario;
 }
+
+// El usuario INGRESO ve todo, pero no cambia nada fuera de la pestaña Ingreso.
+const soloConsulta = () => estado.rol === 'ingreso';
 
 function aviso(texto, tipo = '') {
   const el = document.createElement('div');
@@ -267,6 +273,8 @@ async function cargarEstado() {
 
 // Otras pestañas (Finanzas, Pantalla TV) se suscriben para enterarse de los cambios.
 const alActualizar = [];
+// La pestaña Ingreso se entera de cada ingreso registrado o deshecho en cualquier puerta.
+const alIngreso = [];
 
 function pintarTodo() {
   pintarResumen();
@@ -462,10 +470,11 @@ function pintarDetalle() {
         ${contacto ? `<small>${esc(contacto)}</small>` : ''}
         ${estadoPagoHtml(r)}
         ${estadoCorreoHtml(r)}
+        ${r.ingresados ? `<small class="ingreso-pill">✓ Ingresaron ${r.ingresados} de ${r.sillas.length} al evento</small>` : ''}
         ${r.notas ? `<small>${esc(r.notas)}</small>` : ''}
         <small>Registrado ${esc(r.creado_en.slice(0, 16))}${r.registrado_por ? ` por ${esc(r.registrado_por)}` : ''}${editada}</small>
       </div>
-      <div class="botones">
+      <div class="botones solo-admin">
         <button type="button" class="boton pequeno" data-editar="${r.id}">Editar</button>
         <a class="boton pequeno" href="/api/reservas/${r.id}/boleta.pdf" target="_blank" rel="noopener">Boleta PDF</a>
         ${r.correo && r.autoriza_datos ? `<button type="button" class="boton pequeno" data-reenviar="${r.id}">${r.correo_estado === 'enviado' ? 'Reenviar correo' : 'Enviar correo'}</button>` : ''}
@@ -481,9 +490,9 @@ function pintarDetalle() {
   $('#bloqueado-msg').hidden = !bloqueado;
   $('#bloqueado-msg').textContent = `Palco bloqueado${d.motivo_bloqueo ? `: ${d.motivo_bloqueo}` : ''}. No admite reservas nuevas.`;
 
-  const mostrarForm = (libres > 0 && !bloqueado) || !!estado.editando;
+  const mostrarForm = !soloConsulta() && ((libres > 0 && !bloqueado) || !!estado.editando);
   form.hidden = !mostrarForm;
-  $('#lleno').hidden = mostrarForm || bloqueado;
+  $('#lleno').hidden = mostrarForm || bloqueado || libres > 0;
   actualizarTextoSeleccion();
   actualizarValorAutomatico();
   pintarPagos();
@@ -757,7 +766,8 @@ async function eliminar(id) {
   const r = estado.detalle.reservas.find(x => x.id === id);
   if (!r) return;
   const pago = r.pagado ? `\n\nSe anula el pago de ${pesos(r.pagado)} (${[...new Set(r.pagos.map(p => p.medio))].join(', ')}). Recuerda devolver el dinero si corresponde.` : '';
-  if (!confirm(`¿Anular la reserva ${r.codigo} de ${r.nombre} (palco ${r.palco}, sillas ${r.sillas.join(', ')})?${pago}`)) return;
+  const ingreso = r.ingresados ? `\n\n⚠ OJO: ya ingresaron al evento ${r.ingresados} de ${r.sillas.length} personas de esta reserva. Esos ingresos también se quitan del conteo.` : '';
+  if (!confirm(`¿Anular la reserva ${r.codigo} de ${r.nombre} (palco ${r.palco}, sillas ${r.sillas.join(', ')})?${pago}${ingreso}`)) return;
   try {
     await api('DELETE', `/api/reservas/${id}`);
     if (estado.editando?.id === id) cancelarEdicion();
@@ -999,6 +1009,11 @@ function conectarEventos() {
     conexion.textContent = `En línea · ${plural(total, 'equipo conectado', 'equipos conectados')}`;
   });
   fuente.addEventListener('cambio', e => refrescar(JSON.parse(e.data).palcos, false));
+  fuente.addEventListener('ingreso', e => {
+    const datos = JSON.parse(e.data);
+    for (const fn of alIngreso) fn(datos);
+    if (dialogo.open && estado.abierto === datos.palco) cargarDetalle().catch(() => {});
+  });
   fuente.addEventListener('config', () => refrescar(null, true));
 }
 
@@ -1015,11 +1030,12 @@ async function refrescar(palcos, todo) {
 }
 
 // ── Pestañas: #registro, #finanzas, #tv ─────────────────────────────────
-const VISTAS = ['registro', 'finanzas', 'tv'];
+const VISTAS = ['registro', 'finanzas', 'tv', 'ingreso'];
 const alMostrarVista = {}; // vista → función que la carga
 
 function mostrarVista() {
-  const actual = VISTAS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'registro';
+  const predeterminada = estado.rol === 'ingreso' ? 'ingreso' : 'registro';
+  const actual = VISTAS.includes(location.hash.slice(1)) ? location.hash.slice(1) : predeterminada;
   estado.vista = actual;
   for (const v of VISTAS) $(`#vista-${v}`).hidden = v !== actual;
   document.querySelectorAll('#pestanas a').forEach(a => a.classList.toggle('activa', a.dataset.vista === actual));
@@ -1303,9 +1319,13 @@ construirPlano(svgPlano, nodos, vista);
 aplicarZoom(estado.zoom);
 // finanzas.js y tv.js se cargan después de este archivo: se arranca cuando todo está listo.
 window.addEventListener('DOMContentLoaded', () => {
-  mostrarVista();
-  cargarSesion().catch(err => console.error(err));
-  cargarEstado()
+  // Primero la sesión: de ella depende qué se puede hacer (y qué pestaña abre).
+  cargarSesion()
+    .catch(err => console.error(err))
+    .then(() => {
+      mostrarVista();
+      return cargarEstado();
+    })
     .then(() => Promise.all(alActualizar.map(fn => fn(null))))
     .catch(err => aviso(err.message, 'error'));
   conectarEventos();

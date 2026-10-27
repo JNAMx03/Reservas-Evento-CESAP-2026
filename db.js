@@ -7,7 +7,7 @@ const { DatabaseSync } = require('node:sqlite');
 const PLANO = require('./public/plano.js');
 const CLAVES = require('./lib/claves');
 
-const ESQUEMA = 8;
+const ESQUEMA = 9;
 const HORAS_SESION = 12;
 
 const DIR_DATOS = path.join(__dirname, 'data');
@@ -134,18 +134,44 @@ db.exec(`
     creada_en TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
     expira_en INTEGER NOT NULL
   );
+
+  -- Ingreso al evento: cada lectura confirmada (puede haber varias por reserva si llegan por partes).
+  -- Guarda código, palco y nombre tal como estaban, para el reporte.
+  CREATE TABLE IF NOT EXISTS ingresos (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    reserva_id INTEGER NOT NULL,
+    codigo     TEXT    NOT NULL DEFAULT '',
+    palco      INTEGER,
+    nombre     TEXT    NOT NULL DEFAULT '',
+    personas   INTEGER NOT NULL CHECK (personas > 0),
+    puerta     TEXT    NOT NULL DEFAULT '',
+    usuario    TEXT    NOT NULL DEFAULT '',
+    ip         TEXT    NOT NULL DEFAULT '',
+    fecha      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_ingresos_reserva ON ingresos(reserva_id);
 `);
 
-// Versión 7 → 8: el historial guarda también el usuario de la sesión.
-if (!db.prepare('PRAGMA table_info(historial)').all().some(c => c.name === 'usuario')) {
-  db.exec("ALTER TABLE historial ADD COLUMN usuario TEXT NOT NULL DEFAULT ''");
+// Columnas nuevas en tablas que ya existían (se revisa la tabla para no repetirlas).
+function agregarColumna(tabla, columna, definicion) {
+  if (!db.prepare(`PRAGMA table_info(${tabla})`).all().some(c => c.name === columna)) {
+    db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${columna} ${definicion}`);
+  }
 }
+// Versión 7 → 8: el historial guarda también el usuario de la sesión.
+agregarColumna('historial', 'usuario', "TEXT NOT NULL DEFAULT ''");
+// Versión 8 → 9: rol de cada usuario (admin | ingreso).
+agregarColumna('usuarios', 'rol', "TEXT NOT NULL DEFAULT 'admin'");
 
 // Usuarios iniciales (solo los que falten; nunca cambia una contraseña existente).
 {
   const existe = db.prepare('SELECT 1 FROM usuarios WHERE usuario = ?');
-  const insertar = db.prepare('INSERT INTO usuarios (usuario, clave) VALUES (?, ?)');
-  for (const u of CLAVES.USUARIOS_INICIALES) if (!existe.get(u.usuario)) insertar.run(u.usuario, CLAVES.huella(u.clave));
+  const insertar = db.prepare('INSERT INTO usuarios (usuario, clave, rol) VALUES (?, ?, ?)');
+  const ponerRol = db.prepare('UPDATE usuarios SET rol = ? WHERE usuario = ?');
+  for (const u of CLAVES.USUARIOS_INICIALES) {
+    if (!existe.get(u.usuario)) insertar.run(u.usuario, CLAVES.huella(u.clave), u.rol);
+    else ponerRol.run(u.rol, u.usuario);
+  }
 }
 
 // Actualizaciones de bases existentes (las nuevas ya se crean completas arriba).
@@ -285,7 +311,9 @@ const sql = {
   bloquear: db.prepare('UPDATE palcos SET bloqueado = ?, motivo_bloqueo = ? WHERE numero = ?'),
   sillasDePalco: db.prepare('SELECT silla, reserva_id FROM reserva_sillas WHERE palco = ? ORDER BY silla'),
   sillasOcupadas: db.prepare('SELECT silla FROM reserva_sillas WHERE palco = ? AND reserva_id <> ?'),
-  reservasDePalco: db.prepare('SELECT * FROM reservas WHERE palco = ? ORDER BY id'),
+  reservasDePalco: db.prepare(`
+    SELECT r.*, (SELECT COALESCE(SUM(personas), 0) FROM ingresos WHERE reserva_id = r.id) AS ingresados
+    FROM reservas r WHERE r.palco = ? ORDER BY r.id`),
   reserva: db.prepare('SELECT * FROM reservas WHERE id = ?'),
   insertar: db.prepare(`
     INSERT INTO reservas (palco, nombre, documento, telefono, notas, registrado_por, valor, afiliacion, codigo, correo, autoriza_datos)
@@ -314,12 +342,39 @@ const sql = {
            (SELECT COUNT(*) FROM reserva_sillas s WHERE s.reserva_id = r.id) AS cantidad,
            (SELECT COALESCE(SUM(valor), 0) FROM pagos WHERE reserva_id = r.id) AS pagado,
            ${MEDIO_Y_FECHA},
-           c.nombre AS zona, e.nombre AS empresa
+           c.nombre AS zona, e.nombre AS empresa,
+           (SELECT COALESCE(SUM(personas), 0) FROM ingresos WHERE reserva_id = r.id) AS ingresados,
+           (SELECT MIN(fecha) FROM ingresos WHERE reserva_id = r.id) AS primer_ingreso,
+           (SELECT MAX(fecha) FROM ingresos WHERE reserva_id = r.id) AS ultimo_ingreso
     FROM reservas r
     JOIN palcos p ON p.numero = r.palco
     LEFT JOIN categorias c ON c.id = p.categoria_id
     LEFT JOIN empresas e ON e.id = p.empresa_id
     ORDER BY r.palco, r.id`),
+  excelIngresos: db.prepare('SELECT * FROM ingresos ORDER BY id'),
+  // ── Ingreso al evento ──
+  reservaIngreso: db.prepare(`
+    SELECT r.id, r.codigo, r.palco, r.nombre, r.documento, r.afiliacion,
+           ${LISTA_SILLAS} AS sillas_texto,
+           (SELECT COUNT(*) FROM reserva_sillas s WHERE s.reserva_id = r.id) AS personas,
+           c.nombre AS zona, c.color AS zona_color, e.nombre AS empresa, e.color AS empresa_color
+    FROM reservas r
+    JOIN palcos p ON p.numero = r.palco
+    LEFT JOIN categorias c ON c.id = p.categoria_id
+    LEFT JOIN empresas e ON e.id = p.empresa_id
+    WHERE r.codigo = ?`),
+  ingresosDeReserva: db.prepare('SELECT id, personas, puerta, usuario, fecha FROM ingresos WHERE reserva_id = ? ORDER BY id'),
+  insertarIngreso: db.prepare(`
+    INSERT INTO ingresos (reserva_id, codigo, palco, nombre, personas, puerta, usuario, ip)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  borrarIngreso: db.prepare('DELETE FROM ingresos WHERE id = ?'),
+  borrarIngresosDeReserva: db.prepare('DELETE FROM ingresos WHERE reserva_id = ?'),
+  asistenciaReservas: db.prepare(`
+    SELECT r.palco,
+           (SELECT COUNT(*) FROM reserva_sillas s WHERE s.reserva_id = r.id) AS personas,
+           (SELECT COALESCE(SUM(personas), 0) FROM ingresos WHERE reserva_id = r.id) AS ingresados
+    FROM reservas r`),
+  ingresosTodos: db.prepare('SELECT id, codigo, palco, nombre, personas, puerta, fecha FROM ingresos ORDER BY id DESC'),
   excelPagos: db.prepare(`
     SELECT pg.*, r.codigo, r.palco, r.nombre, r.afiliacion, c.nombre AS zona
     FROM pagos pg
@@ -353,7 +408,9 @@ const sql = {
   usuario: db.prepare('SELECT usuario, clave FROM usuarios WHERE usuario = ?'),
   cambiarClave: db.prepare("UPDATE usuarios SET clave = ?, cambiada_en = datetime('now', 'localtime') WHERE usuario = ?"),
   insertarSesion: db.prepare('INSERT INTO sesiones (token, usuario, ip, expira_en) VALUES (?, ?, ?, ?)'),
-  sesion: db.prepare('SELECT usuario, expira_en FROM sesiones WHERE token = ?'),
+  sesion: db.prepare(`
+    SELECT s.usuario, s.expira_en, COALESCE(u.rol, 'admin') AS rol
+    FROM sesiones s LEFT JOIN usuarios u ON u.usuario = s.usuario WHERE s.token = ?`),
   borrarSesion: db.prepare('DELETE FROM sesiones WHERE token = ?'),
   borrarOtrasSesiones: db.prepare('DELETE FROM sesiones WHERE usuario = ? AND token <> ?'),
   borrarVencidas: db.prepare('DELETE FROM sesiones WHERE expira_en <= ?'),
@@ -620,13 +677,18 @@ function anularReserva(id, quien) {
     const antes = fotoReserva(id);
     if (!antes) throw new ErrorHttp(404, 'La reserva ya no existe');
     const pagado = antes.pagos.reduce((t, p) => t + p.valor, 0);
+    // Si ya habían ingresado al evento, esos ingresos se quitan del conteo (quedan en el historial).
+    const ingresos = sql.ingresosDeReserva.all(id);
+    const ingresados = ingresos.reduce((t, i) => t + i.personas, 0);
+    sql.borrarIngresosDeReserva.run(id);
     sql.borrarPagosDeReserva.run(id);
     sql.eliminar.run(id); // las sillas se liberan solas (ON DELETE CASCADE)
     registrarMovimiento(quien, 'Anular reserva', {
       palco: antes.palco, codigo: antes.codigo,
       detalle: `${antes.nombre} · palco ${antes.palco} · sillas ${antes.sillas.join(', ')} · pago anulado ${pesos(pagado)}`
-        + ` (${[...new Set(antes.pagos.map(p => p.medio))].join(', ') || 'sin pago'})`,
-      antes,
+        + ` (${[...new Set(antes.pagos.map(p => p.medio))].join(', ') || 'sin pago'})`
+        + (ingresados ? ` · ya habían ingresado ${ingresados} persona(s)` : ''),
+      antes: ingresos.length ? { ...antes, ingresos } : antes,
     });
     return antes;
   });
@@ -654,6 +716,7 @@ function datosExcel() {
   return {
     reservas: sql.excelReservas.all(),
     pagos: sql.excelPagos.all(),
+    ingresos: sql.excelIngresos.all(),
     palcos: sql.excelPalcos.all(),
     categorias: GRUPOS.categorias.listar.all(),
     empresas: GRUPOS.empresas.listar.all(),
@@ -773,6 +836,86 @@ function asignarPalcos(datos, quien) {
   });
 }
 
+// ── Ingreso al evento ───────────────────────────────────────────────────
+// Saca el código FA-XXXX de lo que mande la pistola (el QR trae varias líneas y a veces
+// letras dañadas por la distribución del teclado) o de lo que se escriba a mano ("WGGU").
+const LETRAS_CODIGO = `[${ALFABETO_CODIGO}]`;
+const CODIGO_EN_TEXTO = new RegExp(`(?:^|[^A-Z0-9])FA[^A-Z0-9]{0,3}(${LETRAS_CODIGO}{4})(?![A-Z0-9])`);
+const CODIGO_SOLO = new RegExp(`^(${LETRAS_CODIGO}{4})$`);
+function codigoDeLectura(leido) {
+  const t = String(leido ?? '').toUpperCase().slice(0, 2000);
+  const m = t.match(CODIGO_EN_TEXTO) || t.trim().match(CODIGO_SOLO);
+  return m ? `FA-${m[1]}` : '';
+}
+
+function infoIngreso(r) {
+  const ingresos = sql.ingresosDeReserva.all(r.id);
+  const ingresados = ingresos.reduce((t, i) => t + i.personas, 0);
+  return { ...r, ingresados, faltan: Math.max(0, r.personas - ingresados), ingresos };
+}
+
+function reservaDeLectura(leido, quien) {
+  const codigo = codigoDeLectura(leido);
+  const r = codigo && sql.reservaIngreso.get(codigo);
+  if (!r) {
+    const visto = String(leido ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    registrarMovimiento(quien, 'Ingreso: código no válido', { codigo, detalle: `Leído: "${visto}"` });
+    throw new ErrorHttp(404, codigo ? `El código ${codigo} no existe o fue anulado` : 'No se encontró un código de reserva en la lectura');
+  }
+  return r;
+}
+
+// Consultar (al leer el QR o escribir el código): todavía no registra el ingreso.
+function consultarIngreso(datos, quien) {
+  const info = infoIngreso(reservaDeLectura(datos.codigo, quien));
+  if (info.faltan === 0) {
+    registrarMovimiento(quien, 'Ingreso: lectura de reserva ya completa', {
+      palco: info.palco, codigo: info.codigo, detalle: `${info.nombre} · ${info.ingresados} de ${info.personas} ya habían ingresado · puerta ${texto(datos.puerta, 40) || '(sin nombre)'}`,
+    });
+  }
+  return info;
+}
+
+function registrarIngreso(datos, quien) {
+  return transaccion(() => {
+    const r = reservaDeLectura(datos.codigo, quien);
+    const antes = infoIngreso(r);
+    const personas = Number(datos.personas);
+    if (antes.faltan === 0) throw new ErrorHttp(409, `Esta reserva ya ingresó completa (${antes.ingresados} de ${antes.personas})`);
+    if (!Number.isInteger(personas) || personas < 1) throw new ErrorHttp(400, 'Indica cuántas personas ingresan');
+    if (personas > antes.faltan) throw new ErrorHttp(409, `Solo ${antes.faltan === 1 ? 'falta 1 persona' : `faltan ${antes.faltan} personas`} por ingresar en esta reserva`);
+    const puerta = texto(datos.puerta, 40);
+    sql.insertarIngreso.run(r.id, r.codigo, r.palco, r.nombre, personas, puerta, texto(quien?.usuario, 40), texto(quien?.ip, 60));
+    registrarMovimiento(quien, 'Registrar ingreso', {
+      palco: r.palco, codigo: r.codigo,
+      detalle: `${r.nombre} · ingresan ${personas} · van ${antes.ingresados + personas} de ${r.personas} · puerta ${puerta || '(sin nombre)'}`,
+    });
+    return infoIngreso(r);
+  });
+}
+
+// Deshacer el último ingreso registrado de esa reserva (por si se registró por error).
+function deshacerIngreso(datos, quien) {
+  return transaccion(() => {
+    const r = reservaDeLectura(datos.codigo, quien);
+    const antes = infoIngreso(r);
+    const ultimo = antes.ingresos.at(-1);
+    if (!ultimo) throw new ErrorHttp(409, 'Esta reserva no tiene ingresos para deshacer');
+    sql.borrarIngreso.run(ultimo.id);
+    registrarMovimiento(quien, 'Deshacer ingreso', {
+      palco: r.palco, codigo: r.codigo,
+      detalle: `${r.nombre} · se quitó el ingreso de ${ultimo.personas} (${ultimo.fecha.slice(11, 16)}, puerta ${ultimo.puerta || '(sin nombre)'}) · quedan ${antes.ingresados - ultimo.personas} de ${r.personas}`,
+      antes: ultimo,
+    });
+    return infoIngreso(r);
+  });
+}
+
+// Todo lo de la gráfica en vivo: asistencia por reserva y la lista de ingresos.
+function estadoIngresos() {
+  return { reservas: sql.asistenciaReservas.all(), ingresos: sql.ingresosTodos.all() };
+}
+
 // ── Inicio de sesión ────────────────────────────────────────────────────
 // Devuelve el nombre del usuario tal como está guardado (ej. "CESAP"), o null si no coincide.
 function verificarUsuario(usuario, clave) {
@@ -796,7 +939,7 @@ function sesionDeToken(token) {
     sql.borrarSesion.run(CLAVES.resumenToken(token));
     return null;
   }
-  return { usuario: s.usuario, expira_en: s.expira_en };
+  return { usuario: s.usuario, expira_en: s.expira_en, rol: s.rol };
 }
 
 function cerrarSesion(token) {
@@ -855,6 +998,10 @@ module.exports = {
   eliminarGrupo,
   asignarPalcos,
   bloquearPalcos,
+  consultarIngreso,
+  registrarIngreso,
+  deshacerIngreso,
+  estadoIngresos,
   verificarUsuario,
   crearSesion,
   sesionDeToken,
