@@ -23,10 +23,23 @@
   let propio = { codigo: '', hasta: 0 }; // para no "avisarme" de mi propio registro
 
   // ── Puerta de este equipo ─────────────────────────────────────────────
-  const campoPuerta = $('#ing-puerta');
-  campoPuerta.value = leerLocal('puerta');
-  campoPuerta.addEventListener('input', () => guardarLocal('puerta', campoPuerta.value.trim()));
-  const puerta = () => campoPuerta.value.trim();
+  // Es un botón (no un campo de texto) para que la pistola nunca escriba encima del nombre.
+  const botonPuerta = $('#ing-puerta');
+  let puertaActual = leerLocal('puerta');
+  function pintarPuerta() {
+    botonPuerta.textContent = `Puerta: ${puertaActual || 'sin nombre'} ✎`;
+    botonPuerta.classList.toggle('falta', !puertaActual);
+  }
+  botonPuerta.addEventListener('click', () => {
+    const v = prompt('Nombre de esta puerta (por ejemplo: Puerta 1)', puertaActual);
+    botonPuerta.blur();
+    if (v === null) return;
+    puertaActual = v.trim().slice(0, 40);
+    guardarLocal('puerta', puertaActual);
+    pintarPuerta();
+  });
+  pintarPuerta();
+  const puerta = () => puertaActual;
 
   // ── Sonidos (ayudan en la puerta: no hay que mirar la pantalla) ───────
   let audio;
@@ -189,8 +202,12 @@
       </div>`;
   }
 
+  // Cada ingreso de la reserva, con su propio botón para deshacerlo.
   const listaIngresos = r => (r.ingresos.length
-    ? `<ul class="ing-previos">${r.ingresos.map(i => `<li>${hora(i.fecha)} · ingresaron ${i.personas}${i.puerta ? ` · ${esc(i.puerta)}` : ''}</li>`).join('')}</ul>`
+    ? `<ul class="ing-previos">${r.ingresos.map(i => `<li>
+        <span>${hora(i.fecha)} · ${i.personas === 1 ? 'ingresó 1' : `ingresaron ${i.personas}`}${i.puerta ? ` · ${esc(i.puerta)}` : ''}</span>
+        ${puedeRegistrar() ? `<button type="button" class="enlace peligro" data-deshacer="${i.id}">Deshacer</button>` : ''}
+      </li>`).join('')}</ul>`
     : '');
 
   function pintarTarjeta(mensaje = '') {
@@ -201,17 +218,17 @@
       caja.innerHTML = '<div class="ing-espera">Esperando lectura del código QR…</div>';
     } else if (tarjeta === 'invalido') {
       caja.innerHTML = `<div class="ing-estado"><span class="ing-icono x" aria-hidden="true">✕</span>
-        <div><strong>Código no válido</strong><p>${esc(mensaje)}</p></div></div>`;
+        <div><strong>Código no válido</strong><p>${esc(mensaje)}</p></div></div>
+        ${ultimaLectura ? `<p class="suave pequeno ing-leido">Texto recibido: <code>${esc(ultimaLectura)}</code></p>` : ''}`;
     } else if (tarjeta === 'completa') {
       caja.innerHTML = `<div class="ing-estado"><span class="ing-icono x" aria-hidden="true">✕</span>
           <div><strong>Esta reserva ya ingresó completa</strong><p>Ingresaron ${r.ingresados} de ${r.personas}. Puede ser un QR repetido.</p></div></div>
-        ${datosReserva(r)}${listaIngresos(r)}
-        <div class="acciones"><button type="button" class="boton peligro" data-deshacer>Deshacer último ingreso</button></div>`;
+        ${datosReserva(r)}${listaIngresos(r)}`;
     } else if (tarjeta === 'listo') {
       const parcial = r.ingresados > 0;
       caja.innerHTML = `<div class="ing-estado"><span class="ing-icono ${parcial ? 'parcial' : 'ok'}" aria-hidden="true">${parcial ? '!' : '✓'}</span>
           <div><strong>${parcial ? `Ya ingresaron ${r.ingresados} de ${r.personas}` : 'Puede ingresar'}</strong>
-          <p>${parcial ? `Faltan ${personasTxt(r.faltan)}.` : `Reserva de ${personasTxt(r.personas)}.`}</p></div></div>
+          <p>${parcial ? `${r.faltan === 1 ? 'Falta' : 'Faltan'} ${personasTxt(r.faltan)}.` : `Reserva de ${personasTxt(r.personas)}.`}</p></div></div>
         ${datosReserva(r)}${listaIngresos(r)}
         <div class="ing-cantidad">
           <span>¿Cuántas personas ingresan?</span>
@@ -228,8 +245,7 @@
       caja.innerHTML = `<div class="ing-estado"><span class="ing-icono ok" aria-hidden="true">✓</span>
           <div><strong>Ingreso registrado: ${personasTxt(mensaje)}</strong>
           <p>Van ${r.ingresados} de ${r.personas}.${r.faltan ? ` ${r.faltan === 1 ? 'Falta 1 persona: puede' : `Faltan ${r.faltan} personas: pueden`} entrar después con el mismo QR.` : ' Reserva completa.'}</p></div></div>
-        ${datosReserva(r)}
-        <div class="acciones"><button type="button" class="boton peligro" data-deshacer>Deshacer este ingreso</button></div>`;
+        ${datosReserva(r)}${listaIngresos(r)}`;
     }
   }
 
@@ -286,14 +302,17 @@
     if (fallo) consultar(actual.codigo); // mostrar cómo quedó (por ejemplo, si otra puerta ya la registró)
   }
 
-  async function deshacer() {
+  // Deshace el ingreso que se elija de la lista de la tarjeta (no solo el último).
+  async function deshacer(id) {
     if (ocupado || !actual || !puedeRegistrar()) return;
-    const ultimo = actual.ingresos.at(-1);
-    if (!ultimo || !confirm(`¿Deshacer el ingreso de ${personasTxt(ultimo.personas)} de ${actual.nombre} (${hora(ultimo.fecha)})?`)) return;
+    const elegido = actual.ingresos.find(i => i.id === id);
+    if (!elegido) return;
+    const donde = `${hora(elegido.fecha)}${elegido.puerta ? `, ${elegido.puerta}` : ''}`;
+    if (!confirm(`¿Deshacer el ingreso de ${personasTxt(elegido.personas)} de ${actual.nombre} (${donde})?`)) return;
     ocupado = true;
     try {
       propio = { codigo: actual.codigo, hasta: Date.now() + 5000 };
-      const info = await api('POST', '/api/ingreso/deshacer', { codigo: actual.codigo, puerta: puerta() });
+      const info = await api('POST', '/api/ingreso/deshacer', { codigo: actual.codigo, ingreso_id: id, puerta: puerta() });
       aviso('Ingreso deshecho');
       ocupado = false;
       mostrar(info);
@@ -315,15 +334,17 @@
     if (e.target.closest('[data-menos]')) cambiarCantidad(-1);
     if (e.target.closest('[data-mas]')) cambiarCantidad(1);
     if (e.target.closest('#ing-registrar')) registrar();
-    if (e.target.closest('[data-deshacer]')) deshacer();
+    const b = e.target.closest('[data-deshacer]');
+    if (b) deshacer(Number(b.dataset.deshacer));
   });
 
+  // Botón "Consultar" (o Enter en el campo, que pasa por la lectura de abajo).
+  const campoCodigo = $('#ing-codigo');
   $('#ing-form').addEventListener('submit', e => {
     e.preventDefault();
-    const campo = $('#ing-codigo');
-    if (!campo.value.trim()) return;
-    consultar(campo.value);
-    campo.value = '';
+    if (!campoCodigo.value.trim()) return;
+    leer(campoCodigo.value);
+    campoCodigo.value = '';
   });
 
   $('#ing-ultimos').addEventListener('click', e => {
@@ -332,78 +353,110 @@
   });
 
   // ── Pistola lectora (Honeywell Xenon 1900 como teclado USB) ───────────
-  // La pistola "escribe" todo el texto del QR muy rápido, con un Enter por cada línea.
-  // Se junta lo que llega seguido (menos de 60 ms entre teclas) y se procesa al terminar.
-  // Una persona escribe mucho más despacio, así que su Enter sirve para confirmar.
-  const RAPIDO = 60;
-  let buffer = '', inicio = 0, ultima = 0, temporizador = null;
+  // La pistola "escribe" el texto del QR, con un Enter (o Tab) al final de cada línea.
+  // No se mira la velocidad: todo lo que se escriba fuera de un campo de texto (o en el campo
+  // del código) y termine en Enter es una lectura. Las líneas que llegan seguidas se juntan
+  // y se consultan juntas; el servidor busca el código FA-XXXX dentro del texto.
+  // Un Enter "solo" (sin nada escrito antes) es el de la persona: confirma el ingreso.
+  const ESPERA_LINEAS = 300; // ms sin teclas para dar la lectura por terminada
+  let lineas = [];   // líneas ya terminadas con Enter
+  let linea = '';    // lo que se va escribiendo fuera de los campos
+  let temporizador = null;
+  let ultimaLectura = '';
 
-  function programar() {
-    clearTimeout(temporizador);
-    temporizador = setTimeout(procesar, 150);
-  }
-
-  function procesar() {
-    const leido = buffer;
-    const duracion = ultima - inicio;
-    buffer = '';
-    const sinSaltos = leido.replace(/\n/g, '');
-    const esPistola = sinSaltos.length >= 6 && duracion / Math.max(1, leido.length - 1) <= 35;
-    const activo = document.activeElement;
-    if (!esPistola) {
-      // Escritura a mano con un Enter muy rápido al final: se envía el formulario del código.
-      if (leido.endsWith('\n') && activo?.id === 'ing-codigo') $('#ing-form').requestSubmit();
-      return;
-    }
-    // Si la pistola escribió dentro de un campo, se le devuelve lo que tenía.
-    if (activo?.matches?.('input:not([type=password]), textarea')) {
-      activo.value = activo.value.replace(sinSaltos, '');
-      if (activo === campoPuerta) guardarLocal('puerta', puerta());
-      activo.blur();
-    }
+  function leer(texto) {
+    ultimaLectura = String(texto).replace(/\s+/g, ' ').trim().slice(0, 160);
+    $('#ing-ultima').hidden = !ultimaLectura;
+    $('#ing-ultima').textContent = `Última lectura: ${ultimaLectura}`;
     if (estado.vista !== 'ingreso') location.hash = '#ingreso';
     if (dialogo.open) dialogo.close();
-    consultar(leido);
+    consultar(texto);
   }
 
-  document.addEventListener('keydown', e => {
-    if (!puedeRegistrar() || e.ctrlKey || e.altKey || e.metaKey) return;
-    const activo = document.activeElement;
-    if (activo?.matches?.('input[type=password]')) return;
-    const ahora = performance.now();
-    const seguido = ahora - ultima < RAPIDO;
-    if (!seguido) { buffer = ''; inicio = ahora; }
-    ultima = ahora;
+  function terminarLectura() {
+    clearTimeout(temporizador);
+    const texto = [...lineas, linea].join('\n');
+    lineas = [];
+    linea = '';
+    if (texto.trim()) leer(texto);
+  }
 
-    if (e.key === 'Enter') {
-      if (seguido && buffer.length >= 3) {
-        // Enter en medio de una lectura de la pistola: no debe confirmar ni enviar nada.
-        buffer += '\n';
+  // Tras cada línea terminada se espera un momento por si llegan más líneas del mismo QR.
+  // Si solo hay letras sin Enter, se descartan después de unos segundos.
+  function programar() {
+    clearTimeout(temporizador);
+    temporizador = lineas.length
+      ? setTimeout(terminarLectura, ESPERA_LINEAS)
+      : setTimeout(() => { linea = ''; }, 4000);
+  }
+
+  const esCampoCodigo = el => el === campoCodigo;
+  // Dónde se puede leer: en cualquier parte menos en otros campos de texto (buscar, contraseña…).
+  const sePuedeLeer = el => !el || el === document.body || esCampoCodigo(el)
+    || !el.matches?.('input, textarea, select, [contenteditable="true"]');
+
+  // Ctrl + Alt juntos es AltGr (por ejemplo "@" en teclado español): eso sí se lee.
+  const atajo = e => (e.ctrlKey && !e.altKey) || e.metaKey;
+
+  document.addEventListener('keydown', e => {
+    if (!puedeRegistrar() || atajo(e)) return;
+    const activo = document.activeElement;
+    if (!sePuedeLeer(activo) || document.querySelector('#configuracion[open]')) return;
+
+    // La Honeywell termina cada línea con "flecha abajo" (y no siempre manda Enter al final).
+    // Si hay una lectura en curso, la flecha abajo es un cambio de línea; si no, cambia la cantidad.
+    const finDeLinea = e.key === 'Enter' || e.key === 'Tab' || e.key === 'ArrowDown';
+    if (finDeLinea) {
+      const texto = esCampoCodigo(activo) ? campoCodigo.value : linea;
+      if (texto.trim() || lineas.length) {
+        // Fin de una línea de la pistola (o del código escrito a mano).
         e.preventDefault();
         e.stopPropagation();
+        lineas.push(texto);
+        linea = '';
+        if (esCampoCodigo(activo)) campoCodigo.value = '';
         programar();
         return;
       }
-      buffer = '';
-      // Enter de la persona: confirma el ingreso que muestra la tarjeta
+      if (e.key === 'Tab') return;
+      if (e.key === 'ArrowDown') {
+        if (estado.vista === 'ingreso' && tarjeta === 'listo' && !esCampoCodigo(activo)) {
+          e.preventDefault();
+          cambiarCantidad(-1);
+        }
+        return;
+      }
+      // Enter de la persona: confirma el ingreso de la tarjeta
       // (también si el foco quedó en los botones − / + de la tarjeta).
       const enTarjeta = activo?.closest?.('#ing-tarjeta') && !activo.closest('[data-deshacer]');
-      if (estado.vista === 'ingreso' && tarjeta === 'listo' && (enTarjeta || !activo?.closest?.('input, textarea, select, button, a, dialog'))) {
+      if (estado.vista === 'ingreso' && tarjeta === 'listo' && (enTarjeta || !activo?.closest?.('button, a, dialog'))) {
         e.preventDefault();
         registrar();
       }
       return;
     }
-    if (e.key.length === 1) {
-      buffer += e.key;
+    if (e.key.length === 1 && !e.altKey) {
+      if (esCampoCodigo(activo)) return; // se escribe normal en el campo
+      // Fuera de los campos: se guarda (y no activa botones con la barra espaciadora).
+      e.preventDefault();
+      linea += e.key;
       programar();
       return;
     }
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && estado.vista === 'ingreso' && tarjeta === 'listo'
-      && !activo?.closest?.('input, textarea, select')) {
+    if (e.key === 'ArrowUp' && estado.vista === 'ingreso' && tarjeta === 'listo' && !esCampoCodigo(activo)) {
       e.preventDefault();
-      cambiarCantidad(e.key === 'ArrowUp' ? 1 : -1);
+      cambiarCantidad(1);
     }
+  }, true);
+
+  // Pistolas configuradas con "códigos Alt" (Alt + números) entregan la letra en keypress.
+  document.addEventListener('keypress', e => {
+    if (!puedeRegistrar() || atajo(e) || e.key.length !== 1) return;
+    const activo = document.activeElement;
+    if (!sePuedeLeer(activo) || esCampoCodigo(activo)) return;
+    e.preventDefault();
+    linea += e.key;
+    programar();
   }, true);
 
   // ── Pantalla completa y reloj ─────────────────────────────────────────
@@ -426,7 +479,7 @@
     // Si otra puerta registró la misma reserva que tengo en pantalla, se actualiza la tarjeta.
     const mio = d.codigo === propio.codigo && Date.now() < propio.hasta;
     if (!mio && actual && d.codigo === actual.codigo && tarjeta === 'listo' && puedeRegistrar()) {
-      aviso(`Otra puerta acaba de registrar la reserva ${d.codigo}`, 'error');
+      aviso(`Otra puerta acaba de cambiar los ingresos de la reserva ${d.codigo}`, 'error');
       consultar(d.codigo);
     }
   });

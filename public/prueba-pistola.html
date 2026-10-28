@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prueba de la pistola · GRAN FIESTA ANUAL DE AFILIADOS</title>
+  <link rel="stylesheet" href="estilos.css">
+  <style>
+    .prueba { max-width: 1100px; margin: 0 auto; padding: 16px 20px 40px; display: flex; flex-direction: column; gap: 14px; }
+    .prueba h1 { font-size: 1.3rem; margin: 0; }
+    .pasos { margin: 0; padding-left: 20px; }
+    .pp-grilla { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .pp-caja { white-space: pre-wrap; word-break: break-all; font-family: Consolas, monospace; font-size: .9rem; background: var(--fondo); border: 1px solid var(--borde); border-radius: 8px; padding: 10px; min-height: 90px; margin: 0; }
+    .pp-area { width: 100%; min-height: 110px; font-family: Consolas, monospace; font-size: .9rem; padding: 10px; border: 1px solid var(--borde); border-radius: 8px; background: var(--fondo); }
+    .pp-resultado { font-size: 1.15rem; font-weight: 800; }
+    .pp-resultado.ok { color: var(--ok); }
+    .pp-resultado.mal { color: var(--peligro); }
+    .pp-tabla { max-height: 380px; overflow: auto; }
+    .pp-tabla td, .pp-tabla th { font-family: Consolas, monospace; font-size: .8rem; padding: 3px 8px; }
+    .pp-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pp-estado { display: flex; gap: 8px; flex-wrap: wrap; }
+    .pp-estado .chip.mal { border-color: var(--peligro); color: var(--peligro); }
+    @media (max-width: 800px) { .pp-grilla { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main class="prueba">
+    <div class="fin-cabecera">
+      <h1>Prueba de la pistola lectora</h1>
+      <a class="boton" href="/#ingreso">← Volver a Ingreso</a>
+    </div>
+
+    <div class="pp-estado" id="estado"></div>
+
+    <div class="tarjeta">
+      <h3>Cómo hacer la prueba</h3>
+      <ol class="pasos">
+        <li><strong>Prueba A:</strong> haz clic en un espacio vacío de esta página y dispara la pistola sobre el QR de una boleta.</li>
+        <li><strong>Prueba B:</strong> haz clic dentro del cuadro gris de la derecha y vuelve a disparar.</li>
+        <li>Toma una <strong>foto o captura de toda la pantalla</strong> y envíamela. Si puedes, toca también <strong>Descargar registro</strong> y mándame el archivo.</li>
+      </ol>
+    </div>
+
+    <div class="pp-grilla">
+      <div class="tarjeta">
+        <h3>A · Lo que llegó sin hacer clic en ningún campo</h3>
+        <pre id="texto-a" class="pp-caja"></pre>
+        <p>Código encontrado: <span id="codigo-a" class="pp-resultado">—</span></p>
+      </div>
+      <div class="tarjeta">
+        <h3>B · Dispara con el cursor dentro de este cuadro</h3>
+        <textarea id="area" class="pp-area" placeholder="Haz clic aquí y dispara la pistola"></textarea>
+        <p>Código encontrado: <span id="codigo-b" class="pp-resultado">—</span></p>
+      </div>
+    </div>
+
+    <div class="tarjeta">
+      <div class="fin-cabecera">
+        <h3 style="margin:0">Teclas recibidas (<span id="cuantas">0</span>)</h3>
+        <div class="pp-botones">
+          <button type="button" id="consultar" class="boton" disabled>Consultar el código en el sistema</button>
+          <button type="button" id="copiar" class="boton">Copiar registro</button>
+          <button type="button" id="descargar" class="boton">Descargar registro</button>
+          <button type="button" id="limpiar" class="boton">Limpiar</button>
+        </div>
+      </div>
+      <p id="consulta" class="suave"></p>
+      <div class="pp-tabla tabla-caja">
+        <table class="tabla">
+          <thead><tr><th>ms</th><th>evento</th><th>key</th><th>code</th><th>keyCode</th><th>mods</th><th>dónde</th></tr></thead>
+          <tbody id="eventos"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    'use strict';
+    const $ = s => document.querySelector(s);
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    // La misma regla que usa el servidor para encontrar el código.
+    const LETRAS = '[23456789ABCDEFGHJKMNPQRSTUVWXYZ]';
+    const BUSCAR = [
+      new RegExp(`(?:^|[^A-Z0-9])FA[^A-Z0-9]{1,3}(${LETRAS}{4})`),
+      new RegExp(`(?:^|[^A-Z0-9])FA(${LETRAS}{4})(?![A-Z0-9])`),
+      new RegExp(`^(${LETRAS}{4})$`),
+    ];
+    function codigoDe(t) {
+      t = String(t || '').toUpperCase().trim();
+      for (const re of BUSCAR) { const m = t.match(re); if (m) return `FA-${m[1]}`; }
+      return '';
+    }
+
+    let registro = [];
+    let inicio = 0;
+    let textoA = '';
+    let sesion = null;
+    let ultimoCodigo = '';
+
+    function anotar(e) {
+      const ahora = performance.now();
+      if (!inicio) inicio = ahora;
+      const mods = [e.shiftKey && 'Shift', e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.getModifierState?.('AltGraph') && 'AltGr', e.getModifierState?.('CapsLock') && 'Bloq'].filter(Boolean).join('+');
+      const donde = e.target === $('#area') ? 'cuadro B' : (e.target.tagName || '').toLowerCase();
+      const fila = { ms: Math.round(ahora - inicio), tipo: e.type, key: e.key ?? (e.data ?? ''), code: e.code ?? (e.inputType ?? ''), keyCode: e.keyCode ?? '', mods, donde };
+      registro.push(fila);
+      if (registro.length > 3000) registro.shift();
+      $('#cuantas').textContent = registro.filter(f => f.tipo === 'keydown').length;
+      const tr = document.createElement('tr');
+      tr.innerHTML = [fila.ms, fila.tipo, JSON.stringify(fila.key), fila.code, fila.keyCode, fila.mods, fila.donde].map(v => `<td>${esc(v)}</td>`).join('');
+      $('#eventos').prepend(tr);
+    }
+
+    function mostrarCodigo(sel, texto) {
+      const c = codigoDe(texto);
+      const el = $(sel);
+      el.textContent = c || (texto.trim() ? 'NO se encontró código en este texto' : '—');
+      el.className = `pp-resultado ${c ? 'ok' : texto.trim() ? 'mal' : ''}`;
+      if (c) { ultimoCodigo = c; $('#consultar').disabled = false; }
+    }
+
+    // A: teclas fuera de los campos (como hace la pestaña Ingreso).
+    for (const tipo of ['keydown', 'keypress', 'keyup']) {
+      document.addEventListener(tipo, e => {
+        anotar(e);
+        if (e.target === $('#area')) return;
+        if (tipo === 'keydown') {
+          if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'ArrowDown') { textoA += '\n'; e.preventDefault(); }
+          else if (e.key.length === 1 && !e.altKey && !(e.ctrlKey && !e.altKey)) { textoA += e.key; e.preventDefault(); }
+        } else if (tipo === 'keypress' && e.key.length === 1) {
+          textoA += e.key; // letras que solo llegan en keypress (códigos Alt)
+        }
+        $('#texto-a').textContent = textoA.replace(/\n/g, '⏎\n');
+        mostrarCodigo('#codigo-a', textoA);
+      }, true);
+    }
+    // B: lo que la pistola escribe dentro del cuadro.
+    $('#area').addEventListener('input', e => { anotar(e); mostrarCodigo('#codigo-b', $('#area').value); });
+
+    $('#limpiar').addEventListener('click', () => {
+      registro = []; inicio = 0; textoA = ''; ultimoCodigo = '';
+      $('#eventos').innerHTML = ''; $('#texto-a').textContent = ''; $('#area').value = '';
+      $('#cuantas').textContent = '0'; $('#consulta').textContent = ''; $('#consultar').disabled = true;
+      mostrarCodigo('#codigo-a', ''); mostrarCodigo('#codigo-b', '');
+      $('#limpiar').blur();
+    });
+
+    function textoRegistro() {
+      return [
+        `Prueba de pistola · ${new Date().toLocaleString('es-CO')}`,
+        `Navegador: ${navigator.userAgent}`,
+        `Idioma: ${navigator.language} · Sesión: ${sesion ? `${sesion.usuario} (${sesion.rol})` : 'sin sesión'}`,
+        '', 'A (sin clic):', textoA, `Código A: ${codigoDe(textoA) || 'no encontrado'}`,
+        '', 'B (en el cuadro):', $('#area').value, `Código B: ${codigoDe($('#area').value) || 'no encontrado'}`,
+        '', 'ms\tevento\tkey\tcode\tkeyCode\tmods\tdónde',
+        ...registro.map(f => [f.ms, f.tipo, JSON.stringify(f.key), f.code, f.keyCode, f.mods, f.donde].join('\t')),
+      ].join('\n');
+    }
+    $('#copiar').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(textoRegistro()); $('#copiar').textContent = 'Copiado ✓'; }
+      catch { $('#copiar').textContent = 'No se pudo copiar: usa Descargar'; }
+      $('#copiar').blur();
+    });
+    $('#descargar').addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([textoRegistro()], { type: 'text/plain;charset=utf-8' }));
+      a.download = `prueba-pistola_${Date.now()}.txt`;
+      a.click();
+      $('#descargar').blur();
+    });
+
+    // Consultar el código encontrado (solo el usuario INGRESO puede hacerlo).
+    $('#consultar').addEventListener('click', async () => {
+      $('#consultar').blur();
+      const r = await fetch('/api/ingreso/consultar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codigo: ultimoCodigo, puerta: 'Prueba de pistola' }) });
+      const d = await r.json().catch(() => ({}));
+      $('#consulta').textContent = r.ok
+        ? `✓ ${d.codigo}: ${d.nombre} · palco ${d.palco} · ingresaron ${d.ingresados} de ${d.personas}. El sistema SÍ reconoce este código.`
+        : `✕ ${d.error || `Error ${r.status}`}`;
+    });
+
+    // Estado: sesión y usuario (la pistola solo registra con el usuario INGRESO).
+    fetch('/api/sesion').then(r => (r.ok ? r.json() : null)).then(s => {
+      sesion = s;
+      const chips = [
+        s ? `<span class="chip">Sesión: ${esc(s.usuario)}</span>` : '<span class="chip mal">Sin sesión: inicia sesión primero</span>',
+        s && s.rol !== 'ingreso' ? '<span class="chip mal">Con este usuario la pestaña Ingreso NO lee la pistola: usa INGRESO</span>' : '',
+        `<span class="chip">Idioma del navegador: ${esc(navigator.language)}</span>`,
+      ];
+      $('#estado').innerHTML = chips.join('');
+    });
+  </script>
+</body>
+</html>

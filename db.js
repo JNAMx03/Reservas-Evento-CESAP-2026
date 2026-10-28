@@ -839,13 +839,21 @@ function asignarPalcos(datos, quien) {
 // ── Ingreso al evento ───────────────────────────────────────────────────
 // Saca el código FA-XXXX de lo que mande la pistola (el QR trae varias líneas y a veces
 // letras dañadas por la distribución del teclado) o de lo que se escriba a mano ("WGGU").
+// La pistola Honeywell separa las líneas con "flecha abajo", así que el código puede llegar
+// pegado al nombre ("FA-WGGUaPalco"): se toman las 4 letras que siguen a "FA-".
 const LETRAS_CODIGO = `[${ALFABETO_CODIGO}]`;
-const CODIGO_EN_TEXTO = new RegExp(`(?:^|[^A-Z0-9])FA[^A-Z0-9]{0,3}(${LETRAS_CODIGO}{4})(?![A-Z0-9])`);
-const CODIGO_SOLO = new RegExp(`^(${LETRAS_CODIGO}{4})$`);
+const BUSCAR_CODIGO = [
+  new RegExp(`(?:^|[^A-Z0-9])FA[^A-Z0-9]{1,3}(${LETRAS_CODIGO}{4})`),          // FA-WGGU (o con el guion dañado)
+  new RegExp(`(?:^|[^A-Z0-9])FA(${LETRAS_CODIGO}{4})(?![A-Z0-9])`),             // FAWGGU escrito a mano
+  new RegExp(`^(${LETRAS_CODIGO}{4})$`),                                        // solo WGGU
+];
 function codigoDeLectura(leido) {
-  const t = String(leido ?? '').toUpperCase().slice(0, 2000);
-  const m = t.match(CODIGO_EN_TEXTO) || t.trim().match(CODIGO_SOLO);
-  return m ? `FA-${m[1]}` : '';
+  const t = String(leido ?? '').toUpperCase().slice(0, 2000).trim();
+  for (const re of BUSCAR_CODIGO) {
+    const m = t.match(re);
+    if (m) return `FA-${m[1]}`;
+  }
+  return '';
 }
 
 function infoIngreso(r) {
@@ -894,13 +902,15 @@ function registrarIngreso(datos, quien) {
   });
 }
 
-// Deshacer el último ingreso registrado de esa reserva (por si se registró por error).
+// Deshacer un ingreso de esa reserva (el elegido en la tarjeta, o el último si no se indica).
 function deshacerIngreso(datos, quien) {
   return transaccion(() => {
     const r = reservaDeLectura(datos.codigo, quien);
     const antes = infoIngreso(r);
-    const ultimo = antes.ingresos.at(-1);
-    if (!ultimo) throw new ErrorHttp(409, 'Esta reserva no tiene ingresos para deshacer');
+    if (!antes.ingresos.length) throw new ErrorHttp(409, 'Esta reserva no tiene ingresos para deshacer');
+    const id = Number(datos.ingreso_id);
+    const ultimo = id ? antes.ingresos.find(i => i.id === id) : antes.ingresos.at(-1);
+    if (!ultimo) throw new ErrorHttp(404, 'Ese ingreso ya fue deshecho. Revisa la tarjeta actualizada.');
     sql.borrarIngreso.run(ultimo.id);
     registrarMovimiento(quien, 'Deshacer ingreso', {
       palco: r.palco, codigo: r.codigo,

@@ -193,9 +193,7 @@
   <section id="vista-ingreso" class="vista ing-vista" hidden>
     <div class="ing-cabecera">
       <h2>Ingreso al evento</h2>
-      <label class="ing-puerta solo-ingreso">Puerta
-        <input id="ing-puerta" maxlength="40" placeholder="Ej: Puerta 1" autocomplete="off">
-      </label>
+      <button type="button" id="ing-puerta" class="boton pequeno ing-puerta solo-ingreso">Puerta: sin nombre ✎</button>
       <span id="ing-lector" class="ing-lector solo-ingreso">● Listo para leer</span>
       <span class="ing-aviso-admin solo-admin suave pequeno">Solo visualización. Los ingresos se registran con el usuario INGRESO.</span>
     </div>
@@ -210,6 +208,8 @@
             </span>
           </label>
           <p class="suave pequeno">Con la pistola: dispara sobre el QR, no hace falta hacer clic en nada. Luego <strong>Enter</strong> para confirmar.</p>
+          <p id="ing-ultima" class="suave pequeno ing-ultima" hidden></p>
+          <p class="pequeno"><a href="/prueba-pistola.html">¿La pistola no lee? Probar la pistola</a></p>
         </form>
 
         <div id="ing-tarjeta" class="ing-tarjeta solo-ingreso espera">

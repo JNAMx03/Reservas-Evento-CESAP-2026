@@ -285,11 +285,11 @@ En el servidor, abre **`restablecer-contrasena.bat`**, escribe el usuario (CESAP
 
 El día del evento, en cada puerta, un equipo con sesión **INGRESO** y la pistola lectora.
 
-**Antes de empezar:** en la pestaña Ingreso, escribe el nombre de la puerta (por ejemplo `Puerta 1`). Queda guardado en ese equipo.
+**Antes de empezar:** en la pestaña Ingreso, toca **Puerta: sin nombre ✎** y escribe el nombre (por ejemplo `Puerta 1`). Queda guardado en ese equipo.
 
 ### Con la pistola (Honeywell Xenon 1900)
 1. Conéctala por USB. Funciona como teclado, sin instalar nada.
-2. Dispara sobre el QR de la boleta (en el celular o impreso). **No hace falta hacer clic en ningún campo.** Aunque la pistola escriba varias líneas o dañe tildes y símbolos, la página encuentra el código `FA-XXXX`.
+2. Dispara sobre el QR de la boleta (en el celular o impreso). **No hace falta hacer clic en ningún campo.** La Xenon separa las líneas del QR con "flecha abajo" en vez de Enter, y daña tildes y símbolos: la página lo tiene en cuenta y encuentra el código `FA-XXXX` igual.
 3. Aparece la tarjeta:
    - 🟢 **Puede ingresar**: con cuántas personas vienen ya marcado (todas las que faltan). Con las flechas ↑ ↓ o los botones − / + se cambia si llegan menos. **Enter** registra.
    - 🟡 **Ya ingresaron algunas**: muestra cuántas y a qué hora; se registran las que faltan con el mismo QR.
@@ -299,7 +299,9 @@ El día del evento, en cada puerta, un equipo con sesión **INGRESO** y la pisto
 
 **Sin QR:** escribe el código en "Código de reserva" (`FA-WGGU` o solo `WGGU`) y presiona Enter.
 
-**Si se registró por error:** en la tarjeta, **Deshacer** quita el último ingreso de esa reserva. Queda en el historial interno.
+**Si se registró por error:** la tarjeta muestra cada ingreso de esa reserva (hora y puerta) con su propio botón **Deshacer**; se puede quitar cualquiera, no solo el último. Para encontrar la reserva, lee el QR otra vez, escribe el código o toca la reserva en "Últimos ingresos". Queda en el historial interno.
+
+**Si la pistola no lee:** abre "¿La pistola no lee? Probar la pistola" (debajo del campo del código): muestra cada tecla que llega y si se encuentra el código. Además, debajo del campo del código aparece **"Última lectura"** con el texto exacto que llegó. Si no aparece nada al disparar, la página no está recibiendo las teclas: haz clic en un espacio vacío de la página (fuera del buscador) y vuelve a disparar.
 
 Nunca se puede registrar más personas de las que tiene la reserva, aunque dos puertas lean el mismo QR al mismo tiempo.
 
